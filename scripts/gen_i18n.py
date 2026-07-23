@@ -113,6 +113,7 @@ def parse_yaml_file(filepath: str) -> Dict[str, str]:
 def load_translations(
     translations_dir: str,
     verbose: bool = False,
+    only_languages: Optional[List[str]] = None,
 ) -> Tuple[List[str], List[str], List[str], Dict[str, List[str]], List[Set[str]]]:
     """
     Read every YAML file in *translations_dir* and return:
@@ -135,6 +136,16 @@ def load_translations(
     parsed: Dict[str, Dict[str, str]] = {}
     for yf in yaml_files:
         parsed[yf.name] = parse_yaml_file(str(yf))
+
+    # Optionally restrict to a subset of languages (English is always kept as the
+    # reference). Used by slim firmware builds to drop unused translations.
+    if only_languages:
+        wanted = {c.upper() for c in only_languages} | {"EN"}
+        parsed = {
+            name: data
+            for name, data in parsed.items()
+            if data.get("_language_code", "").upper() in wanted
+        }
 
     # Identify the English file (must exist)
     english_file = None
@@ -557,6 +568,9 @@ def generate_keys_header(
         "EN", "ES", "FR", "DE", "CS", "PT", "RU", "SV", "RO", "CA", "UK",
         "BE", "IT", "PL", "FI", "DA", "NL", "TR", "KK", "HU", "LT", "SI",
     ]
+    # Slim builds may include only a subset of languages; keep only the codes
+    # that are actually present so the migration table still compiles.
+    v1_codes = [c for c in v1_codes if c in languages]
     lines.append("// V1 language.bin migration table (frozen enum order from 2f969a9)")
     lines.append("constexpr Language V1_LANGUAGES[] = {")
     lines.append("    " + ", ".join(f"Language::{c}" for c in v1_codes) + ",")
@@ -824,6 +838,7 @@ def main(
     src_dirs: Optional[List[str]] = None,
     strip_unused: bool = False,
     verbose: bool = False,
+    only_languages: Optional[List[str]] = None,
 ) -> None:
     # Default paths (relative to project root)
     default_translations_dir = "lib/I18n/translations"
@@ -857,7 +872,7 @@ def main(
 
     try:
         languages, language_names, string_keys, translations, inherited_sets = (
-            load_translations(translations_dir, verbose)
+            load_translations(translations_dir, verbose, only_languages)
         )
 
         # --- Unused-string detection ---
@@ -998,6 +1013,10 @@ if __name__ == "__main__":
 else:
     try:
         Import("env")
-        main(strip_unused=True)
+        # A slim env can restrict languages via `custom_i18n_languages = EN,DE`
+        # in platformio.ini (comma-separated codes; English is always kept).
+        _langs_opt = env.GetProjectOption("custom_i18n_languages", "")
+        _only = [c.strip() for c in _langs_opt.split(",") if c.strip()] or None
+        main(strip_unused=True, only_languages=_only)
     except NameError:
         pass
