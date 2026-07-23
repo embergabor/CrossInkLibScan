@@ -40,8 +40,13 @@ void ScanLibraryActivity::onExit() {
 }
 
 void ScanLibraryActivity::loop() {
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    finish();
+  // The scan blocks the single core while parsing each book, so input is only
+  // polled between books. A press+release during a parse is never polled (the
+  // edge is lost), so check the held state instead: holding Back cancels after
+  // the current book finishes. finishAfterBackPress() swallows the release so
+  // the Library screen underneath doesn't also act on it.
+  if (mappedInput.isPressed(MappedInputManager::Button::Back)) {
+    finishAfterBackPress();
     return;
   }
   if (finished || failed) return;
