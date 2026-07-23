@@ -831,6 +831,9 @@ void FileBrowserActivity::loop() {
         res.isCancelled = true;
         setResult(std::move(res));
         finish();
+      } else if (finishAtRootOnBack) {
+        // Opened from the Library screen: return to it instead of Home.
+        finish();
       } else {
         onGoHome();
       }

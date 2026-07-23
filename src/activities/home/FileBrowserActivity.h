@@ -47,6 +47,10 @@ class FileBrowserActivity final : public Activity {
   bool lockNextConfirmRelease = false;
 
   Mode mode = Mode::Books;
+  // When true, a Back press at the root directory finishes this activity (returns
+  // to its caller) instead of going Home. Used when the browser is opened as a
+  // child of the Library screen.
+  bool finishAtRootOnBack = false;
 
   // Files state
   static constexpr size_t INDEX_ROW_CACHE_SIZE = 32;
@@ -71,9 +75,10 @@ class FileBrowserActivity final : public Activity {
 
  public:
   explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/",
-                               Mode mode = Mode::Books)
+                               Mode mode = Mode::Books, bool finishAtRootOnBack = false)
       : Activity("FileBrowser", renderer, mappedInput),
         mode(mode),
+        finishAtRootOnBack(finishAtRootOnBack),
         basepath(initialPath.empty() ? "/" : std::move(initialPath)) {}
   void onEnter() override;
   void onExit() override;

@@ -53,6 +53,7 @@ enum class HomeMenuAction {
   BrowseFiles,
   ContinueReading,
   RecentBooks,
+  Library,
   OpdsBrowser,
   ReadingStats,
   Bookmarks,
@@ -250,8 +251,9 @@ const char* savedItemsLabel(bool hasBookmarks, bool hasClippings) {
 
 void appendHomeMenuItems(HomeMenuEntries& items, bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks,
                          bool hasClippings) {
-  items.push({tr(STR_BROWSE_FILES), Folder, HomeMenuAction::BrowseFiles});
   items.push({tr(STR_MENU_RECENT_BOOKS), Recent, HomeMenuAction::RecentBooks});
+  // File Browser now lives inside the Library screen, keeping the Home menu lean.
+  items.push({tr(STR_MENU_LIBRARY), Book, HomeMenuAction::Library});
 
   if (hasOpdsServers) {
     items.push({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
@@ -276,6 +278,7 @@ HomeMenuEntries buildHomeMenuItems(bool hasOpdsServers, bool hasReadingStats, bo
 HomeMenuEntries buildMinimalMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks, bool hasClippings) {
   HomeMenuEntries items;
   items.push({tr(STR_MENU_RECENT_BOOKS), Recent, HomeMenuAction::RecentBooks});
+  items.push({tr(STR_MENU_LIBRARY), Book, HomeMenuAction::Library});
 
   if (hasOpdsServers) {
     items.push({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
@@ -1455,6 +1458,9 @@ void HomeActivity::loop() {
           case HomeMenuAction::RecentBooks:
             onRecentsOpen();
             break;
+          case HomeMenuAction::Library:
+            onLibraryOpen();
+            break;
           case HomeMenuAction::OpdsBrowser:
             onOpdsBrowserOpen();
             break;
@@ -1650,6 +1656,9 @@ void HomeActivity::loop() {
         break;
       case HomeMenuAction::RecentBooks:
         onRecentsOpen();
+        break;
+      case HomeMenuAction::Library:
+        onLibraryOpen();
         break;
       case HomeMenuAction::OpdsBrowser:
         onOpdsBrowserOpen();
@@ -1883,6 +1892,8 @@ void HomeActivity::onContinueReading() {
 }
 
 void HomeActivity::onRecentsOpen() { activityManager.goToRecentBooks(); }
+
+void HomeActivity::onLibraryOpen() { activityManager.goToLibrary(); }
 
 void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 

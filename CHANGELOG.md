@@ -1,3 +1,15 @@
+## [Unreleased]
+
+### Added
+
+- Metadata Library: browse the whole library by All Books, Authors, or Series without opening each book first. A one-time "Scan Library" pass reads every book's metadata into an on-SD index (kept off-RAM for the ESP32-C3) and warms each book's cache, so scanned books later open with no "Indexing…" pause. List-only views modeled on Recent Books; series views order volumes by series position. Reached from a new "Library" entry on the Home menu.
+- Series metadata parsing (calibre:series / calibre:series_index and EPUB 3 belongs-to-collection / group-position), stored in the per-book cache and exposed via `Epub::getSeries()` / `getSeriesIndex()`.
+
+### Changed
+
+- The File Browser moved off the Home menu into the Library screen (after All Books / Authors / Series), simplifying Home. Back from the browser returns to Library.
+- A library scan now prunes the per-book cache of any book deleted from `/books` since the previous scan (only caches the library itself indexed are considered, so caches for books opened elsewhere are untouched).
+
 ## [v1.4.0] - 2026-07-10
 
 ### Added
