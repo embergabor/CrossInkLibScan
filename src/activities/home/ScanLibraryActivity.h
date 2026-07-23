@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
+#include <vector>
 
 #include "activities/Activity.h"
 #include "library/LibraryScanner.h"
@@ -27,5 +29,8 @@ class ScanLibraryActivity final : public Activity {
   bool started = false;
   bool finished = false;
   bool failed = false;
-  size_t lastRenderedAt = 0;  // processed() count at last render, for throttling
+  // Newest-first feed of recently imported "Author - Title" lines.
+  std::vector<std::string> feed;
+  size_t scannedCount = 0;  // books successfully parsed and indexed
+  uint8_t spinnerFrame = 0;
 };

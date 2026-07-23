@@ -3,6 +3,7 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include <algorithm>
 #include <cstdio>
 
 #include "MappedInputManager.h"
@@ -11,15 +12,18 @@
 #include "fontIds.h"
 
 namespace {
-constexpr size_t RENDER_EVERY = 5;  // refresh the e-ink progress every N books
+constexpr size_t MAX_FEED = 30;               // enough feed lines to fill the screen (render clips to fit)
+constexpr char SPINNER[] = {'|', '/', '-', '\\'};
 }  // namespace
 
 void ScanLibraryActivity::onEnter() {
   Activity::onEnter();
+  feed.clear();
+  scannedCount = 0;
+  spinnerFrame = 0;
   started = scanner.begin();
   failed = !started;
   finished = false;
-  lastRenderedAt = 0;
   // An empty library finishes immediately.
   if (started && scanner.done()) {
     finished = scanner.finish();
@@ -44,11 +48,16 @@ void ScanLibraryActivity::loop() {
 
   if (!scanner.done()) {
     scanner.step(currentTitle);
-    const size_t processed = scanner.processed();
-    if (processed - lastRenderedAt >= RENDER_EVERY || processed == scanner.total()) {
-      lastRenderedAt = processed;
-      requestUpdate();
+    // Only count and list books that actually parsed; failures are skipped.
+    if (scanner.lastImportSucceeded()) {
+      scannedCount++;
+      const std::string& author = scanner.lastAuthor();
+      const std::string& title = scanner.lastTitle();
+      feed.insert(feed.begin(), author.empty() ? title : author + " - " + title);
+      if (feed.size() > MAX_FEED) feed.resize(MAX_FEED);
     }
+    spinnerFrame++;         // advance the spinner every book, including skips
+    requestUpdate();        // refresh once per book
   } else {
     finished = scanner.finish();
     failed = !finished;
@@ -65,17 +74,28 @@ void ScanLibraryActivity::render(RenderLock&&) {
 
   CompactHeader::drawTitle(renderer, tr(STR_LIBRARY_SCANNING));
 
-  char line[64];
+  char line[80];
   if (failed) {
     renderer.drawText(UI_12_FONT_ID, x, contentTop + 24, tr(STR_LIBRARY_EMPTY));
   } else if (finished) {
-    std::snprintf(line, sizeof(line), "%s (%zu)", tr(STR_LIBRARY_SCAN_DONE), scanner.total());
+    std::snprintf(line, sizeof(line), "%s (%zu)", tr(STR_LIBRARY_SCAN_DONE), scannedCount);
     renderer.drawText(UI_12_FONT_ID, x, contentTop + 24, line);
   } else {
-    std::snprintf(line, sizeof(line), "%zu / %zu", scanner.processed(), scanner.total());
-    renderer.drawText(UI_12_FONT_ID, x, contentTop + 24, line);
-    if (!currentTitle.empty()) {
-      renderer.drawText(UI_10_FONT_ID, x, contentTop + 56, currentTitle.c_str());
+    // Progress line: books successfully scanned out of total found, plus a
+    // per-book spinner as a "still running" indicator.
+    std::snprintf(line, sizeof(line), "%c   %zu / %zu", SPINNER[spinnerFrame % sizeof(SPINNER)], scannedCount,
+                  scanner.total());
+    renderer.drawText(UI_12_FONT_ID, x, contentTop + 20, line);
+
+    // Scrolling feed: most recent import on top, older ones below.
+    constexpr int feedLineHeight = 28;
+    const int feedTop = contentTop + 60;
+    const int feedBottom =
+        renderer.getScreenHeight() - metrics.buttonHintsHeight - metrics.verticalSpacing;
+    const int maxRows = std::max(0, (feedBottom - feedTop) / feedLineHeight);
+    const int rows = std::min(static_cast<int>(feed.size()), maxRows);
+    for (int i = 0; i < rows; ++i) {
+      renderer.drawText(UI_10_FONT_ID, x, feedTop + i * feedLineHeight, feed[i].c_str());
     }
   }
 

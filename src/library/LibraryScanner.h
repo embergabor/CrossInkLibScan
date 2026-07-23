@@ -36,9 +36,21 @@ class LibraryScanner {
   // is nothing left to process.
   bool step(std::string& outTitle);
 
+  // Title/author of the most recently processed book (valid after step()).
+  const std::string& lastTitle() const { return lastImportedTitle; }
+  const std::string& lastAuthor() const { return lastImportedAuthor; }
+  // Whether the most recent step() actually parsed and indexed the book (false
+  // when the EPUB failed to load, e.g. out of memory on a large book).
+  bool lastImportSucceeded() const { return lastImportOk; }
+
   // Finalises the index (offset table + footer, atomic replace). Call once
   // done() is true. Returns false on I/O failure.
   bool finish();
+
+  // Removes the library index and every per-book cache the library indexed, so
+  // the next scan rebuilds everything from scratch. Caches for books opened from
+  // outside the library are not touched.
+  static void clear();
 
   // Aborts an in-progress scan, discarding the partial index.
   void abort();
@@ -53,6 +65,9 @@ class LibraryScanner {
 
   std::vector<std::string> bookPaths;
   std::vector<std::string> previousCacheDirs;  // epub_* basenames from the prior index
+  std::string lastImportedTitle;
+  std::string lastImportedAuthor;
+  bool lastImportOk = false;
   size_t nextIndex = 0;
   LibraryIndex index;
   bool building = false;

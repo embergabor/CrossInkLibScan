@@ -13,8 +13,11 @@
 #include "LibraryListActivity.h"
 #include "ScanLibraryActivity.h"
 #include "MappedInputManager.h"
+#include "activities/util/ConfirmationActivity.h"
+#include "library/LibraryScanner.h"
 #include "components/CompactHeader.h"
 #include "components/UITheme.h"
+#include "fontIds.h"
 
 void LibraryActivity::loadCounts() {
   bookCount = 0;
@@ -81,6 +84,22 @@ void LibraryActivity::activateRow(Row row) {
                                requestUpdate(true);
                              });
       return;
+    case Row::Clear:
+      startActivityForResult(
+          std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_LIBRARY_CLEAR),
+                                                 tr(STR_LIBRARY_CLEAR_CONFIRM)),
+          [this](const ActivityResult& res) {
+            if (!res.isCancelled) {
+              // Show a "Clearing…" screen before the blocking delete, then clear.
+              clearing = true;
+              requestUpdateAndWait();
+              LibraryScanner::clear();
+              loadCounts();
+              clearing = false;
+            }
+            requestUpdate(true);
+          });
+      return;
     case Row::kCount:
       return;
   }
@@ -118,10 +137,19 @@ void LibraryActivity::render(RenderLock&&) {
   const int contentTop = CompactHeader::contentTop(metrics);
   const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
 
-  const char* labelsByRow[kRowCount] = {tr(STR_LIBRARY_ALL_BOOKS), tr(STR_LIBRARY_AUTHORS), tr(STR_LIBRARY_SERIES),
+  if (clearing) {
+    renderer.drawText(UI_12_FONT_ID, metrics.contentSidePadding, contentTop + 24, tr(STR_LIBRARY_CLEARING));
+    renderer.displayBuffer();
+    return;
+  }
+
+  const char* labelsByRow[kRowCount] = {tr(STR_LIBRARY_ALL_BOOKS),
+                                        tr(STR_LIBRARY_AUTHORS),
+                                        tr(STR_LIBRARY_SERIES),
                                         tr(STR_BROWSE_FILES),
-                                        bookCount > 0 ? tr(STR_LIBRARY_RESCAN) : tr(STR_LIBRARY_SCAN)};
-  const uint32_t countsByRow[kRowCount] = {bookCount, authorCount, seriesCount, 0, 0};
+                                        bookCount > 0 ? tr(STR_LIBRARY_RESCAN) : tr(STR_LIBRARY_SCAN),
+                                        tr(STR_LIBRARY_CLEAR)};
+  const uint32_t countsByRow[kRowCount] = {bookCount, authorCount, seriesCount, 0, 0, 0};
   // Only the grouping rows (All Books, Authors, Series) show a count.
   constexpr int kCountedRows = static_cast<int>(Row::Series) + 1;
 

@@ -139,7 +139,15 @@ bool LibraryScanner::step(std::string& outTitle) {
   // buildIfMissing=true warms the on-SD cache; skipLoadingCss=true skips the
   // render-only CSS pass we don't need for metadata.
   Epub epub(rec.path, CACHE_DIR);
-  epub.load(/*buildIfMissing=*/true, /*skipLoadingCss=*/true);
+  lastImportOk = epub.load(/*buildIfMissing=*/true, /*skipLoadingCss=*/true);
+  if (!lastImportOk) {
+    // Book failed to parse (e.g. OOM on a large EPUB). Skip it: don't index and
+    // don't count it as scanned. It can still be opened later from the browser.
+    LOG_DBG("LSCAN", "Skipping unparseable book: %s", rec.path.c_str());
+    outTitle.clear();
+    return true;  // advance to the next book
+  }
+
   rec.title = epub.getTitle();
   rec.author = epub.getAuthor();
   rec.series = epub.getSeries();
@@ -149,6 +157,8 @@ bool LibraryScanner::step(std::string& outTitle) {
   }
 
   index.addRecord(rec);
+  lastImportedTitle = rec.title;
+  lastImportedAuthor = rec.author;
   outTitle = rec.title;
   return true;
 }
@@ -165,4 +175,20 @@ void LibraryScanner::abort() {
   if (!building) return;
   building = false;
   index.abortBuild();
+}
+
+void LibraryScanner::clear() {
+  size_t removed = 0;
+  LibraryIndex idx;
+  if (idx.open()) {
+    LibraryIndex::Record r;
+    for (uint32_t i = 0; i < idx.count(); ++i) {
+      if (!idx.recordAt(i, r)) continue;
+      const std::string dir = std::string(CACHE_DIR) + "/" + cacheDirName(r.path);
+      if (Storage.exists(dir.c_str()) && Storage.removeDir(dir.c_str())) removed++;
+    }
+    idx.close();
+  }
+  LibraryIndex::remove();
+  LOG_INF("LSCAN", "Library cleared: index + %zu book cache(s)", removed);
 }

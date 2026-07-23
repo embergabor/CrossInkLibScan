@@ -19,7 +19,7 @@ class LibraryActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum class Row : uint8_t { AllBooks, Authors, Series, FileBrowser, Scan, kCount };
+  enum class Row : uint8_t { AllBooks, Authors, Series, FileBrowser, Scan, Clear, kCount };
   static constexpr int kRowCount = static_cast<int>(Row::kCount);
 
   void loadCounts();
@@ -31,4 +31,5 @@ class LibraryActivity final : public Activity {
   uint32_t bookCount = 0;
   uint32_t authorCount = 0;
   uint32_t seriesCount = 0;
+  bool clearing = false;  // true while a Clear Library operation is running
 };
