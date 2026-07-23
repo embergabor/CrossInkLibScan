@@ -11,6 +11,11 @@
 #include <charconv>
 #include <cstring>
 #include <string_view>
+#include <type_traits>
+#ifdef SIMULATOR
+#include <cerrno>
+#include <cstdlib>
+#endif
 
 namespace {
 
@@ -127,8 +132,32 @@ bool tryParseNumber(std::string_view s, T& out) {
   const char* begin = s.data();
   const char* end = s.data() + s.size();
   if (begin < end && *begin == '+') ++begin;
+#ifdef SIMULATOR
+  // Apple Command Line Tools libc++ marks floating-point std::from_chars as a
+  // deleted overload, so the host simulator build cannot instantiate it for
+  // float. Use strtod on the host float path; every other path (integral types,
+  // and the whole device build) keeps std::from_chars unchanged. The `else`
+  // branch is required so the deleted float overload is never instantiated.
+  if constexpr (std::is_floating_point_v<T>) {
+    const size_t len = static_cast<size_t>(end - begin);
+    char buf[64];
+    if (len == 0 || len >= sizeof(buf)) return false;
+    memcpy(buf, begin, len);
+    buf[len] = '\0';
+    char* parseEnd = nullptr;
+    errno = 0;
+    const double v = std::strtod(buf, &parseEnd);
+    if (parseEnd != buf + len || errno == ERANGE) return false;
+    out = static_cast<T>(v);
+    return true;
+  } else {
+    const auto r = std::from_chars(begin, end, out);
+    return r.ec == std::errc{} && r.ptr == end;
+  }
+#else
   const auto r = std::from_chars(begin, end, out);
   return r.ec == std::errc{} && r.ptr == end;
+#endif
 }
 
 // Collect up to 4 whitespace-separated tokens for a CSS edge-value shorthand

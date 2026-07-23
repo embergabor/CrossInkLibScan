@@ -84,6 +84,8 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "fontIds.h"
 #include "network/UsbSerialFileTransfer.h"
 #ifdef SIMULATOR
+#include "simulator/SimulatorIngestTest.h"
+#include "simulator/SimulatorLibraryShots.h"
 #include "simulator/SimulatorSmokeTest.h"
 #endif
 #include "images/LoadingIcon.h"
@@ -984,6 +986,8 @@ void loop() {
 
 #ifdef SIMULATOR
   runSimulatorSmokeTestTick();
+  runSimulatorIngestTestTick();
+  runSimulatorLibraryShotsTick();
 #endif
 
   const unsigned long loopDuration = millis() - loopStartTime;
