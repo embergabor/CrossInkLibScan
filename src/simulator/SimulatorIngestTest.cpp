@@ -22,7 +22,7 @@ void runSimulatorIngestTestTick() {
   // test twice (deleting a book between) exercises the prune path.
 
   LibraryScanner scanner;
-  if (!scanner.begin("/books")) {
+  if (!scanner.begin()) {  // default root = SD card root, same as on device
     LOG_ERR("INGEST", "scan begin failed");
     return;
   }

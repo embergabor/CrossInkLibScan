@@ -17,7 +17,10 @@
 // between; a headless caller can loop step() to completion.
 class LibraryScanner {
  public:
-  static constexpr char DEFAULT_BOOKS_ROOT[] = "/books";
+  // Scan from the SD-card root by default, the same place the File Browser reads
+  // from, so books are found wherever the user keeps them (the device has no
+  // enforced /books folder). Recursion skips hidden dirs like .crosspoint.
+  static constexpr char DEFAULT_BOOKS_ROOT[] = "/";
 
   LibraryScanner() = default;
 
