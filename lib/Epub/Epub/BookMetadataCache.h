@@ -15,6 +15,11 @@ class BookMetadataCache {
     std::string language;
     std::string coverItemHref;
     std::string textReferenceHref;
+    // Series/collection this book belongs to (empty when unknown). Populated from
+    // calibre:series / EPUB 3 belongs-to-collection metadata. seriesIndex is the
+    // position within the series (0 when unspecified).
+    std::string series;
+    float seriesIndex = 0.0f;
   };
 
   struct SpineEntry {

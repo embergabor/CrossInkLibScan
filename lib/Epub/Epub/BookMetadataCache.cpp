@@ -11,7 +11,7 @@
 
 namespace {
 constexpr uint32_t BOOK_CACHE_MAGIC = 0x425843FF;  // bytes: 0xFF, "CXB"
-constexpr uint8_t BOOK_CACHE_VERSION = 8;          // v8: TOC/book titles stored NFC-composed
+constexpr uint8_t BOOK_CACHE_VERSION = 9;          // v9: adds series + seriesIndex metadata
 constexpr char bookBinFile[] = "/book.bin";
 constexpr char tmpSpineBinFile[] = "/spine.bin.tmp";
 constexpr char tmpTocBinFile[] = "/toc.bin.tmp";
@@ -136,9 +136,11 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
 
   constexpr uint32_t headerASize = sizeof(BOOK_CACHE_MAGIC) + sizeof(BOOK_CACHE_VERSION) +
                                    /* LUT Offset */ sizeof(uint32_t) + sizeof(spineCount) + sizeof(tocCount);
+  // 6 length-prefixed strings (title, author, language, cover, textRef, series)
+  // plus a fixed-size float for seriesIndex.
   const uint32_t metadataSize = metadata.title.size() + metadata.author.size() + metadata.language.size() +
                                 metadata.coverItemHref.size() + metadata.textReferenceHref.size() +
-                                sizeof(uint32_t) * 5;
+                                metadata.series.size() + sizeof(uint32_t) * 6 + sizeof(metadata.seriesIndex);
   const uint32_t lutSize = sizeof(uint32_t) * spineCount + sizeof(uint32_t) * tocCount;
   const uint32_t lutOffset = headerASize + metadataSize;
 
@@ -154,6 +156,8 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   serialization::writeString(bookFile, metadata.language);
   serialization::writeString(bookFile, metadata.coverItemHref);
   serialization::writeString(bookFile, metadata.textReferenceHref);
+  serialization::writeString(bookFile, metadata.series);
+  serialization::writePod(bookFile, metadata.seriesIndex);
 
   // Loop through spine entries, writing LUT positions
   spineFile.seek(0);
@@ -456,7 +460,9 @@ bool BookMetadataCache::load() {
       !serialization::tryReadString(bookFile, coreMetadata.author) ||
       !serialization::tryReadString(bookFile, coreMetadata.language) ||
       !serialization::tryReadString(bookFile, coreMetadata.coverItemHref) ||
-      !serialization::tryReadString(bookFile, coreMetadata.textReferenceHref)) {
+      !serialization::tryReadString(bookFile, coreMetadata.textReferenceHref) ||
+      !serialization::tryReadString(bookFile, coreMetadata.series) ||
+      !serialization::tryReadPod(bookFile, coreMetadata.seriesIndex)) {
     LOG_DBG("BMC", "Cache metadata is truncated");
     bookFile.close();
     Storage.remove(bookBinPath.c_str());

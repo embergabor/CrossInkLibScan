@@ -73,6 +73,10 @@ class Epub {
   const std::string& getTitle() const;
   const std::string& getAuthor() const;
   const std::string& getLanguage() const;
+  // Series/collection name (empty when the book has none) and the book's
+  // position within it (0 when unspecified).
+  const std::string& getSeries() const;
+  float getSeriesIndex() const;
   std::string getCoverBmpPath(bool cropped = false) const;
   bool generateCoverBmp(bool cropped = false, const GfxRenderer* renderer = nullptr, int readerFontId = 0) const;
   std::string getThumbBmpPath() const;

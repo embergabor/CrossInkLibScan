@@ -19,6 +19,8 @@ class ContentOpfParser final : public Print {
     IN_BOOK_TITLE,
     IN_BOOK_AUTHOR,
     IN_BOOK_LANGUAGE,
+    IN_COLLECTION,      // EPUB 3 <meta property="belongs-to-collection"> text
+    IN_GROUP_POSITION,  // EPUB 3 <meta property="group-position"> text
     IN_MANIFEST,
     IN_SPINE,
     IN_GUIDE,
@@ -78,6 +80,9 @@ class ContentOpfParser final : public Print {
   std::string coverItemHref;
   std::string guideCoverPageHref;  // Guide reference with type="cover" or "cover-page" (points to XHTML wrapper)
   std::string textReferenceHref;
+  std::string series;       // calibre:series or EPUB 3 belongs-to-collection (series-type)
+  float seriesIndex = 0.0f;  // calibre:series_index or EPUB 3 group-position
+  std::string groupPositionText;  // accumulates EPUB 3 group-position element text
   std::vector<std::string> cssFiles;  // CSS stylesheet paths
 
   explicit ContentOpfParser(const std::string& cachePath, const std::string& baseContentPath, const size_t xmlSize,

@@ -341,6 +341,22 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, const 
 
   bookMetadata.textReferenceHref = opfParser.textReferenceHref;
 
+  // Series name is user-facing: trim XML whitespace and NFC-compose like the title.
+  {
+    const std::string& raw = opfParser.series;
+    const auto begin = raw.find_first_not_of(" \t\r\n");
+    if (begin == std::string::npos) {
+      bookMetadata.series.clear();
+    } else {
+      const auto end = raw.find_last_not_of(" \t\r\n");
+      bookMetadata.series = utf8ComposeNfc(raw.substr(begin, end - begin + 1));
+    }
+  }
+  bookMetadata.seriesIndex = opfParser.seriesIndex;
+  if (!bookMetadata.series.empty()) {
+    LOG_DBG("EBP", "Series: '%s' #%.2f", bookMetadata.series.c_str(), bookMetadata.seriesIndex);
+  }
+
   if (!opfParser.tocNcxPath.empty()) {
     tocNcxItem = opfParser.tocNcxPath;
   }
@@ -855,6 +871,23 @@ const std::string& Epub::getLanguage() const {
   }
 
   return bookMetadataCache->coreMetadata.language;
+}
+
+const std::string& Epub::getSeries() const {
+  static std::string blank;
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
+    return blank;
+  }
+
+  return bookMetadataCache->coreMetadata.series;
+}
+
+float Epub::getSeriesIndex() const {
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
+    return 0.0f;
+  }
+
+  return bookMetadataCache->coreMetadata.seriesIndex;
 }
 
 std::string Epub::getCoverBmpPath(bool cropped) const {

@@ -7,12 +7,17 @@ fixed-size char buffer.
 
 ## `book.bin`
 
-### Version 8
+### Version 9
 
 `book.bin` stores EPUB metadata plus lookup tables for spine and TOC entries.
 The current firmware writes this version from `BookMetadataCache`.
-Version 8 stores book and TOC title strings NFC-composed so decomposed
-diacritics render correctly with device fonts.
+Version 9 adds `series` (length-prefixed string) and `seriesIndex` (float) to the
+metadata block, written after `textReferenceHref`. These come from calibre or
+EPUB 3 collection metadata and drive the metadata Library's Series grouping.
+Caches written by older versions are transparently rebuilt on next open.
+
+Version 8 stored book and TOC title strings NFC-composed so decomposed
+diacritics render correctly with device fonts (still true in v9).
 
 ImHex pattern:
 
@@ -21,7 +26,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 8
+#define EXPECTED_VERSION 9
 #define MAX_STRING_LENGTH 65535
 
 struct String {
@@ -42,6 +47,8 @@ struct Metadata {
     String language [[comment("Book language code")]];
     String coverItemHref [[comment("Path to cover image")]];
     String textReferenceHref [[comment("Path to guided first text reference")]];
+    String series [[comment("Series/collection name (empty if none)")]];
+    float seriesIndex [[comment("Position within the series (0 if unspecified)")]];
 };
 
 struct SpineEntry {

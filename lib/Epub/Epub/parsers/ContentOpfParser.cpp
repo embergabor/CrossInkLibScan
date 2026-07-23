@@ -6,6 +6,7 @@
 #include <XmlParserUtils.h>
 
 #include <cctype>
+#include <cstdlib>
 
 #include "Epub/BookMetadataCache.h"
 
@@ -166,19 +167,43 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
   }
 
   if (self->state == IN_METADATA && (strcmp(name, "meta") == 0 || strcmp(name, "opf:meta") == 0)) {
-    bool isCover = false;
-    std::string coverItemId;
+    const char* metaName = nullptr;
+    const char* metaContent = nullptr;
+    const char* metaProperty = nullptr;
 
     for (int i = 0; atts[i]; i += 2) {
-      if (strcmp(atts[i], "name") == 0 && strcmp(atts[i + 1], "cover") == 0) {
-        isCover = true;
+      if (strcmp(atts[i], "name") == 0) {
+        metaName = atts[i + 1];
       } else if (strcmp(atts[i], "content") == 0) {
-        coverItemId = atts[i + 1];
+        metaContent = atts[i + 1];
+      } else if (strcmp(atts[i], "property") == 0) {
+        metaProperty = atts[i + 1];
       }
     }
 
-    if (isCover) {
-      self->coverItemId = coverItemId;
+    // Calibre-style series metadata is attribute-based and self-closing:
+    //   <meta name="calibre:series" content="Jack Reacher"/>
+    //   <meta name="calibre:series_index" content="1"/>
+    if (metaName && metaContent) {
+      if (strcmp(metaName, "cover") == 0) {
+        self->coverItemId = metaContent;
+      } else if (strcmp(metaName, "calibre:series") == 0 && self->series.empty()) {
+        self->series = metaContent;
+      } else if (strcmp(metaName, "calibre:series_index") == 0) {
+        self->seriesIndex = strtof(metaContent, nullptr);
+      }
+    }
+
+    // EPUB 3 collection metadata stores the value as element text, so switch to
+    // a capturing state; endElement returns to IN_METADATA.
+    //   <meta property="belongs-to-collection">Jack Reacher</meta>
+    //   <meta property="group-position">1</meta>
+    if (metaProperty) {
+      if (strcmp(metaProperty, "belongs-to-collection") == 0 && self->series.empty()) {
+        self->state = IN_COLLECTION;
+      } else if (strcmp(metaProperty, "group-position") == 0 && self->seriesIndex == 0.0f) {
+        self->state = IN_GROUP_POSITION;
+      }
     }
     return;
   }
@@ -351,6 +376,16 @@ void XMLCALL ContentOpfParser::characterData(void* userData, const XML_Char* s, 
     self->language.append(s, len);
     return;
   }
+
+  if (self->state == IN_COLLECTION) {
+    self->series.append(s, len);
+    return;
+  }
+
+  if (self->state == IN_GROUP_POSITION) {
+    self->groupPositionText.append(s, len);
+    return;
+  }
 }
 
 void XMLCALL ContentOpfParser::endElement(void* userData, const XML_Char* name) {
@@ -386,6 +421,19 @@ void XMLCALL ContentOpfParser::endElement(void* userData, const XML_Char* name) 
   }
 
   if (self->state == IN_BOOK_LANGUAGE && strcmp(name, "dc:language") == 0) {
+    self->state = IN_METADATA;
+    return;
+  }
+
+  if (self->state == IN_COLLECTION && (strcmp(name, "meta") == 0 || strcmp(name, "opf:meta") == 0)) {
+    self->state = IN_METADATA;
+    return;
+  }
+
+  if (self->state == IN_GROUP_POSITION && (strcmp(name, "meta") == 0 || strcmp(name, "opf:meta") == 0)) {
+    if (!self->groupPositionText.empty()) {
+      self->seriesIndex = strtof(self->groupPositionText.c_str(), nullptr);
+    }
     self->state = IN_METADATA;
     return;
   }
