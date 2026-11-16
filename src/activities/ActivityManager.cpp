@@ -4,6 +4,7 @@
 #include <HalScalableFont.h>
 #endif
 
+#include <CalmUi.h>
 #include <CrossInkHalFrontlight.h>
 #include <Epub.h>
 #include <FontCacheManager.h>
@@ -1052,6 +1053,15 @@ void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::
 }
 
 void ActivityManager::goHome(HomeMenuItem initialMenuItem, const HalDisplay::RefreshMode initialRefreshMode) {
+#if CROSSINK_CALM_UI
+  // Calm UI has no Home menu: the Library is the home screen.
+  (void)initialMenuItem;
+  (void)initialRefreshMode;
+  preferredHomeBookPath.clear();
+  returningHomeThroughSettings = false;
+  goToLibrary();
+  return;
+#endif
   std::string initialBookPath;
   if (returningHomeThroughSettings) {
     initialBookPath = std::move(preferredHomeBookPath);

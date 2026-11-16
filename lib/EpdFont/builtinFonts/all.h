@@ -20,6 +20,7 @@
 #include <builtinFonts/bitter_16_bolditalic.h>
 #include <builtinFonts/bitter_16_italic.h>
 #include <builtinFonts/bitter_16_regular.h>
+#if !CROSSINK_CALM_UI
 #include <builtinFonts/lexenddeca_10_bold.h>
 #include <builtinFonts/lexenddeca_10_bolditalic.h>
 #include <builtinFonts/lexenddeca_10_italic.h>
@@ -36,6 +37,7 @@
 #include <builtinFonts/lexenddeca_16_bolditalic.h>
 #include <builtinFonts/lexenddeca_16_italic.h>
 #include <builtinFonts/lexenddeca_16_regular.h>
+#endif  // !CROSSINK_CALM_UI
 
 #endif
 

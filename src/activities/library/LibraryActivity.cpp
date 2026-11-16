@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Bitmap.h>
+#include <CalmUi.h>
 #include <DateFormatting.h>
 #include <Epub.h>
 #include <FsHelpers.h>
@@ -903,8 +904,12 @@ void LibraryActivity::handleInput(const LibraryInputBuffer::Event& input) {
       applyFilter();
       resetViewport();
       requestUpdate();
-    } else
+    } else {
+#if !CROSSINK_CALM_UI
+      // In calm builds the Library is the home screen, so Back stays here.
       onGoHome();
+#endif
+    }
     return;
   }
   const auto swipe = input.type == Type::SwipeUp      ? MappedInputManager::SwipeDir::Up
@@ -1433,8 +1438,16 @@ void LibraryActivity::render(RenderLock&&) {
   const char* confirmLabel = !mappedInput.hasTouchHardware() && rowCount() == 0 ? ""
                              : selection < CONTROL_COUNT                        ? tr(STR_SELECT)
                                                                                 : tr(STR_OPEN);
+#if CROSSINK_CALM_UI
+  // The Library is home in calm builds; Back only clears a search.
+  const MappedInputManager::Label backLabel =
+      query.empty() ? MappedInputManager::Label("") : mappedInput.withBackArrow(tr(STR_BACK));
+#else
+  const MappedInputManager::Label backLabel =
+      mappedInput.withBackArrow(query.empty() ? tr(STR_HOME) : tr(STR_BACK));
+#endif
   const auto labels =
-      mappedInput.mapLabels(mappedInput.withBackArrow(query.empty() ? tr(STR_HOME) : tr(STR_BACK)), confirmLabel,
+      mappedInput.mapLabels(backLabel, confirmLabel,
                             mappedInput.hasTouchHardware() ? tr(STR_DIR_UP) : tr(STR_SORT),
                             mappedInput.hasTouchHardware() ? tr(STR_DIR_DOWN) : tr(STR_MENU));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

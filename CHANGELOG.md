@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Added
+
+- Calm UI build (`calm` env) for the original Xteink X4: the Library is the home screen, the reader shows only the page number, and the firmware is English-only with English hyphenation and Bitter as the only built-in reading font, freeing about 1.5 MB of flash.
+
 ## [v1.6.1] - 2026-10-03
 
 ### Added

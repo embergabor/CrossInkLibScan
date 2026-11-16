@@ -27,6 +27,7 @@
 #include <uzlib.h>
 
 #include "AppCapabilities.h"
+#include "calm/CalmPolicy.h"
 
 #ifdef SIMULATOR
 using esp_reset_reason_t = int;
@@ -179,6 +180,7 @@ static void logBootHeap(const char* stage) {
 
 // Fonts
 #if !CROSSINK_SCALABLE_FONTS
+#if !CROSSINK_CALM_UI
 EpdFont lexenddeca10RegularFont(&lexenddeca_10_regular);
 EpdFont lexenddeca10BoldFont(&lexenddeca_10_bold);
 EpdFont lexenddeca10ItalicFont(&lexenddeca_10_italic);
@@ -203,6 +205,7 @@ EpdFont lexenddeca16ItalicFont(&lexenddeca_16_italic);
 EpdFont lexenddeca16BoldItalicFont(&lexenddeca_16_bolditalic);
 EpdFontFamily lexenddeca16FontFamily(&lexenddeca16RegularFont, &lexenddeca16BoldFont, &lexenddeca16ItalicFont,
                                      &lexenddeca16BoldItalicFont);
+#endif  // !CROSSINK_CALM_UI
 EpdFont bitter10RegularFont(&bitter_10_regular);
 EpdFont bitter10BoldFont(&bitter_10_bold);
 EpdFont bitter10ItalicFont(&bitter_10_italic);
@@ -1175,10 +1178,19 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   renderer.setFontCacheManager(&fontCacheManager);
 
 #if !CROSSINK_SCALABLE_FONTS
+#if CROSSINK_CALM_UI
+  // Calm builds drop the Lexend Deca bitmaps (~500 KB flash). Keep its IDs
+  // resolvable so any stored or cached reference falls back to Bitter.
+  renderer.insertFont(LEXENDDECA_10_FONT_ID, bitter10FontFamily);
+  renderer.insertFont(LEXENDDECA_12_FONT_ID, bitter12FontFamily);
+  renderer.insertFont(LEXENDDECA_14_FONT_ID, bitter14FontFamily);
+  renderer.insertFont(LEXENDDECA_16_FONT_ID, bitter16FontFamily);
+#else
   renderer.insertFont(LEXENDDECA_10_FONT_ID, lexenddeca10FontFamily);
   renderer.insertFont(LEXENDDECA_12_FONT_ID, lexenddeca12FontFamily);
   renderer.insertFont(LEXENDDECA_14_FONT_ID, lexenddeca14FontFamily);
   renderer.insertFont(LEXENDDECA_16_FONT_ID, lexenddeca16FontFamily);
+#endif
   renderer.insertFont(BITTER_10_FONT_ID, bitter10FontFamily);
   renderer.insertFont(BITTER_12_FONT_ID, bitter12FontFamily);
   renderer.insertFont(BITTER_14_FONT_ID, bitter14FontFamily);
@@ -1344,6 +1356,7 @@ void setup() {
   HalSystem::checkPanic();
 
   SETTINGS.loadFromFile();
+  calm::applySettingsPolicy(SETTINGS);
   Storage.installDateTimeCallback(&SETTINGS.clockUtcOffsetQ);
   APP_STATE.loadFromFile();
   mirrorWakeShortPressToNvs();
