@@ -22,16 +22,7 @@ void applySettingsPolicy(CrossPointSettings& settings) {
   bottom.slots[ReaderStatusBarConfig::CENTER] = ReaderStatusBarItem::ChapterPageCount;
   settings.bottomReaderStatusBar = bottom;
 
-  // Upstream's "Recently opened" sort lists only books already opened, so a
-  // fresh card looks empty. Calm lists every book: open on Title (A-Z) with
-  // EPUB metadata, which also triggers the first scan.
-  // Values mirror LibraryActivity::Sort { DateAdded, Title, ..., RecentlyRead=4 }.
-  constexpr uint8_t kSortTitle = 1;
-  constexpr uint8_t kSortRecentlyRead = 4;
-  if (settings.librarySortMethod == kSortRecentlyRead) {
-    settings.librarySortMethod = kSortTitle;
-    settings.librarySortDescending = 0;
-  }
+  // The calm Library shows titles and authors from EPUB metadata.
   settings.libraryUseMetadata = 1;
 
   LOG_DBG("CALM", "Settings policy applied");

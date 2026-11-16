@@ -39,6 +39,9 @@
 #include "EpubReaderChapterSelectionActivity.h"
 #include "EpubReaderClippingListActivity.h"
 #include "EpubReaderDrawerActivity.h"
+#if CROSSINK_CALM_UI
+#include "calm/CalmSheetActivity.h"
+#endif
 #include "EpubReaderFootnoteSelectActivity.h"
 #include "EpubReaderFootnotesActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
@@ -2569,6 +2572,25 @@ void EpubReaderActivity::openReaderMenu() {
     bookProgress = getCurrentBookProgressPercent();
   }
   pauseReadingPaceTimer("reader_menu");
+#if CROSSINK_CALM_UI
+  // Calm UI: one bottom sheet replaces the drawer. It reports a MenuResult, so
+  // the handler below still does the relayout, chapter list and percent jump.
+  (void)chapterPageCountEstimated;
+  (void)stableCurrentPage;
+  (void)stablePageCount;
+  (void)isBookCompleted;
+  CalmSheetActivity::Context calmContext;
+  calmContext.title = epub->getTitle();
+  calmContext.chapterPage = chapterPage;
+  calmContext.chapterPageCount = chapterPageCount;
+  calmContext.bookProgress = bookProgress;
+  calmContext.beginGlobalEdit = beginGlobalSettingsEditForBookReader;
+  calmContext.saveGlobal = saveGlobalSettingsForBookReader;
+  calmContext.endGlobalEdit = endGlobalSettingsEditForBookReader;
+  calmContext.readerContext = this;
+  std::unique_ptr<Activity> menuActivity =
+      makeUniqueNoThrow<CalmSheetActivity>(renderer, mappedInput, std::move(calmContext));
+#else
   const BookReaderSettingsData bookSettings = loadBookReaderSettingsFile(epub->getCachePath());
   std::unique_ptr<EpubReaderPreviewModel> buttonPreviewModel;
 #if CROSSINK_APP_READER_SAMPLE_PREVIEW
@@ -2602,6 +2624,7 @@ void EpubReaderActivity::openReaderMenu() {
       endGlobalSettingsEditForBookReader, this, bookSettings.dictionarySdFontFamilyName,
       bookSettings.dictionaryFontPointSize, bookSettings.hasDictionaryFontOverride, saveDictionaryFontForBookReader,
       this, touchReaderDrawerState, std::move(buttonPreviewModel));
+#endif
   if (!menuActivity) {
     LOG_ERR("ERS", "Could not allocate reader drawer");
     resumeReadingPaceTimer("reader_menu_oom");

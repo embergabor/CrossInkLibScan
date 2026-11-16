@@ -32,6 +32,9 @@
 #include "home/HomeActivity.h"
 #include "home/RecentBookProgress.h"
 #include "library/LibraryActivity.h"
+#if CROSSINK_CALM_UI
+#include "calm/CalmLibraryActivity.h"
+#endif
 #include "network/CrossPointWebServerActivity.h"
 #include "network/NearbyBookTransferActivity.h"
 #include "network/NearbyStatsSyncActivity.h"
@@ -954,7 +957,11 @@ void ActivityManager::goToFileBrowser(std::string path) {
 }
 
 void ActivityManager::goToLibrary() {
+#if CROSSINK_CALM_UI
+  auto library = makeUniqueNoThrow<CalmLibraryActivity>(renderer, mappedInput);
+#else
   auto library = makeUniqueNoThrow<LibraryActivity>(renderer, mappedInput);
+#endif
   if (!library) {
     LOG_ERR("ACT", "Cannot allocate Library activity");
     return;

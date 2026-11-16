@@ -3,6 +3,7 @@
 ### Added
 
 - Calm UI build (`calm` env) for the original Xteink X4: the Library is the home screen, the reader shows only the page number, and the firmware is English-only with English hyphenation and Bitter as the only built-in reading font, freeing about 1.5 MB of flash.
+- Calm UI screens: a quiet Library list with Recent, Title, Author and Series sorts, a book card (hold Confirm) with Continue reading, Mark as finished and Delete, and a reading sheet that replaces the EPUB reader menu with size, font, line spacing, alignment, margins and full refresh.
 
 ## [v1.6.1] - 2026-10-03
 
