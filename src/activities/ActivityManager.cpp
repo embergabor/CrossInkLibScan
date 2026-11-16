@@ -34,6 +34,7 @@
 #include "library/LibraryActivity.h"
 #if CROSSINK_CALM_UI
 #include "calm/CalmLibraryActivity.h"
+#include "calm/CalmSettingsActivity.h"
 #endif
 #include "network/CrossPointWebServerActivity.h"
 #include "network/NearbyBookTransferActivity.h"
@@ -940,6 +941,13 @@ void ActivityManager::goToNearbyStatsSync() {
 }
 
 void ActivityManager::goToSettings(const bool dismissOnUpSwipe) {
+#if CROSSINK_CALM_UI
+  (void)dismissOnUpSwipe;
+  preferredHomeBookPath.clear();
+  returningHomeThroughSettings = false;
+  replaceActivity(std::make_unique<CalmSettingsActivity>(renderer, mappedInput));
+  return;
+#endif
   preferredHomeBookPath.clear();
   returningHomeThroughSettings = false;
   if (currentActivity && currentActivity->isHomeActivity()) {

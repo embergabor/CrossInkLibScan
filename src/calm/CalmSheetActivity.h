@@ -10,7 +10,7 @@
 //
 //   Library  ·  Contents  ·  Go to %          (row 0, Left/Right pick, Confirm runs)
 //   <title>                        page, %, battery
-//   Size / Font / Line spacing / Alignment / Margins / Full refresh
+//   Size / Font / Antialiasing / Line spacing / Alignment / Margins / Full refresh
 //                                             (Left/Right change the value)
 //
 // Up/Down move between rows; Back (or Confirm on a setting row) closes the
@@ -43,7 +43,17 @@ class CalmSheetActivity final : public Activity {
   bool requiresFreshBackdrop() const override { return true; }
 
  private:
-  enum class Row : uint8_t { Actions = 0, Size, Font, LineSpacing, Alignment, Margins, FullRefresh, Count };
+  enum class Row : uint8_t {
+    Actions = 0,
+    Size,
+    Font,
+    AntiAliasing,
+    LineSpacing,
+    Alignment,
+    Margins,
+    FullRefresh,
+    Count
+  };
   enum class ActionChip : uint8_t { Library = 0, Contents, GoToPercent, Count };
 
   struct FontChoice {

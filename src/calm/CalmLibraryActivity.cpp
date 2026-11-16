@@ -13,7 +13,9 @@
 #include <cstring>
 
 #include "CalmBookCardActivity.h"
+#include "CalmDraw.h"
 #include "CalmLayout.h"
+#include "components/icons/listIcons.h"
 #include "activities/home/BookActions.h"
 #include "activities/home/RecentBookProgress.h"
 #include "fontIds.h"
@@ -165,7 +167,7 @@ void CalmLibraryActivity::drawScanScreen(const char* message) const {
   renderer.clearScreen();
   const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
   renderer.drawCenteredText(UI_12_FONT_ID, top + height / 2 - lineHeight, message);
-  renderer.drawCenteredText(UI_10_FONT_ID, top + height / 2 + lineHeight / 2, tr(STR_CANCEL));
+  renderer.drawCenteredText(UI_10_FONT_ID, top + height / 2 + lineHeight / 2, tr(STR_CALM_BACK_TO_CANCEL));
   renderer.displayBuffer();
 }
 
@@ -276,6 +278,7 @@ bool CalmLibraryActivity::readRow(const int row, Row& out) {
                                                                   : RecentBookProgress::loadPercent(*it);
       out.progress = RecentBookProgress::formatPercent(percent);
     }
+    if (out.progress.empty()) out.progress = tr(STR_CALM_NEW);
   }
   return true;
 }
@@ -299,20 +302,22 @@ void CalmLibraryActivity::moveSelection(const int next) {
   {
     // loadPage() rewrites the rows render() is drawing.
     RenderLock lock;
+    if (next < 0 && selection >= 0) headerFocus = static_cast<int>(sort);  // arrive on the active sort
     selection = std::clamp(next, -1, bookCount - 1);
     if (selection >= 0) loadPage(selection / pageRows);
   }
   requestUpdate();
 }
 
-void CalmLibraryActivity::cycleSort() {
-  sort = static_cast<Sort>((static_cast<uint8_t>(sort) + 1) % static_cast<uint8_t>(Sort::Count));
+void CalmLibraryActivity::setSort(const Sort next) {
+  if (next == sort) return;
+  sort = next;
   SETTINGS.librarySortMethod = sortToSettings(sort);
   SETTINGS.librarySortDescending = sort == Sort::Recent ? 1 : 0;
   if (!SETTINGS.saveToFile()) LOG_ERR("CALM", "Cannot save Library sort");
   {
     RenderLock lock;
-    // Keep the header focused so repeated Confirm presses keep cycling.
+    // Stay on the header so the next Left/Right keeps browsing sorts.
     reload();
     selection = -1;
   }
@@ -330,8 +335,9 @@ void CalmLibraryActivity::openSelected() {
 void CalmLibraryActivity::openBookCard() {
   if (selection < 0 || selection >= bookCount) return;
   const Row row = rows[selection - loadedPage * pageRows];
+  const int rowTop = top + calm::HEADER_HEIGHT + (selection - loadedPage * pageRows) * calm::ROW_HEIGHT;
   auto card = makeUniqueNoThrow<CalmBookCardActivity>(renderer, mappedInput, row.path, row.title, row.detail,
-                                                      row.progress);
+                                                      row.progress, rowTop, rowTop + calm::ROW_HEIGHT);
   if (!card) {
     LOG_ERR("CALM", "Cannot allocate book card");
     return;
@@ -384,10 +390,10 @@ void CalmLibraryActivity::loop() {
   if (confirmHeld && mappedInput.wasReleased(Button::Confirm)) {
     confirmHeld = false;
     if (selection < 0) {
-      if (headerItem == HeaderItem::Sort)
-        cycleSort();
-      else
+      if (headerFocus == HEADER_SETTINGS_STOP)
         activityManager.goToSettings();
+      else
+        setSort(static_cast<Sort>(headerFocus));
     } else {
       openSelected();
     }
@@ -401,8 +407,9 @@ void CalmLibraryActivity::loop() {
   }
 
   if (selection < 0) {
-    if (mappedInput.wasReleased(Button::Left) || mappedInput.wasReleased(Button::Right)) {
-      headerItem = headerItem == HeaderItem::Sort ? HeaderItem::Settings : HeaderItem::Sort;
+    const bool left = mappedInput.wasReleased(Button::Left);
+    if (left || mappedInput.wasReleased(Button::Right)) {
+      headerFocus = (headerFocus + (left ? HEADER_STOPS - 1 : 1)) % HEADER_STOPS;
       requestUpdate();
       return;
     }
@@ -424,7 +431,7 @@ void CalmLibraryActivity::loop() {
   navigator.onContinuous({Button::Up, Button::Up}, [this] { moveSelection(std::max(-1, selection - pageRows)); });
 }
 
-const char* CalmLibraryActivity::sortLabel() const {
+const char* CalmLibraryActivity::sortLabel(const Sort sort) {
   switch (sort) {
     case Sort::Title:
       return tr(STR_LIBRARY_TITLE);
@@ -439,22 +446,58 @@ const char* CalmLibraryActivity::sortLabel() const {
 
 void CalmLibraryActivity::drawHeader() const {
   const int x = left + calm::SIDE_MARGIN;
-  const int titleY = top + (calm::HEADER_HEIGHT - renderer.getLineHeight(UI_12_FONT_ID)) / 2;
-  renderer.drawText(UI_12_FONT_ID, x, titleY, tr(STR_LIBRARY), true, EpdFontFamily::BOLD);
+  // Serif display title, as in Calm UI.
+  const int titleY = top + (calm::HEADER_HEIGHT - renderer.getLineHeight(BITTER_14_FONT_ID)) / 2;
+  renderer.drawText(BITTER_14_FONT_ID, x, titleY, tr(STR_LIBRARY), true, EpdFontFamily::BOLD);
+  const int titleRight = x + renderer.getTextWidth(BITTER_14_FONT_ID, tr(STR_LIBRARY), EpdFontFamily::BOLD);
 
-  // Right side: "<sort>   Settings". The focused one is inverted.
-  const char* labels[2] = {sortLabel(), tr(STR_SETTINGS_TITLE)};
-  const int pad = calm::CHIP_PADDING;
-  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  const int chipY = top + (calm::HEADER_HEIGHT - lineHeight) / 2 - 3;
-  int cursor = left + width - calm::SIDE_MARGIN;
-  for (int i = 1; i >= 0; i--) {
-    const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, labels[i]);
-    const int chipX = cursor - textWidth - 2 * pad;
-    const bool focused = selection < 0 && static_cast<int>(headerItem) == i;
-    if (focused) renderer.fillRect(chipX, chipY, textWidth + 2 * pad, lineHeight + 6);
-    renderer.drawText(UI_10_FONT_ID, chipX + pad, chipY + 3, labels[i], !focused);
-    cursor = chipX - calm::CHIP_GAP;
+  const int controlY = top + (calm::HEADER_HEIGHT - calm::CONTROL_HEIGHT) / 2;
+  const bool headerFocused = selection < 0;
+
+  // Settings: a square rounded button with a cog, at the right edge.
+  // Inset by the focus ring so the ring is never clipped at the screen edge.
+  const int cogX = left + width - calm::SIDE_MARGIN - calm::CONTROL_HEIGHT;
+  static_assert(calm::SIDE_MARGIN >= calm::FOCUS_RING_GAP + calm::FOCUS_RING_WIDTH, "focus ring needs the margin");
+  calm::drawButton(renderer, cogX, controlY, calm::CONTROL_HEIGHT, calm::CONTROL_HEIGHT, false);
+  calm::drawIcon(renderer, icon_cog_24, cogX + (calm::CONTROL_HEIGHT - icon_cog_24.w) / 2,
+                 controlY + (calm::CONTROL_HEIGHT - icon_cog_24.h) / 2);
+  if (headerFocused && headerFocus == HEADER_SETTINGS_STOP)
+    calm::drawFocusRing(renderer, cogX, controlY, calm::CONTROL_HEIGHT, calm::CONTROL_HEIGHT);
+
+  // Sort: a segmented control. The active sort is filled; the header cursor is
+  // a ring around one segment.
+  const int segments = static_cast<int>(Sort::Count);
+  int segmentWidths[static_cast<int>(Sort::Count)];
+  int textTotal = 0;
+  for (int i = 0; i < segments; i++) {
+    // Width of the bold (active) form, so the layout never shifts as the sort changes.
+    segmentWidths[i] = renderer.getTextWidth(UI_10_FONT_ID, sortLabel(static_cast<Sort>(i)), EpdFontFamily::BOLD);
+    textTotal += segmentWidths[i];
+  }
+  // Pad the segments into whatever room the title leaves (4..10 px a side).
+  const int room = cogX - calm::CHIP_GAP - (titleRight + calm::CHIP_GAP + calm::FOCUS_RING_GAP + calm::FOCUS_RING_WIDTH);
+  const int segmentPadding = std::clamp((room - textTotal) / (2 * segments), 4, 10);
+  int total = 0;
+  for (int i = 0; i < segments; i++) {
+    segmentWidths[i] += 2 * segmentPadding;
+    total += segmentWidths[i];
+  }
+  int segX = cogX - calm::CHIP_GAP - total;
+  renderer.drawRoundedRect(segX, controlY, total, calm::CONTROL_HEIGHT, 1, calm::RADIUS, true);
+  for (int i = 0; i < segments; i++) {
+    const bool active = static_cast<int>(sort) == i;
+    const int w = segmentWidths[i];
+    if (active) {
+      renderer.fillRoundedRect(segX, controlY, w, calm::CONTROL_HEIGHT, calm::RADIUS, i == 0, i == segments - 1,
+                               i == 0, i == segments - 1, Color::Black);
+    } else if (i > 0 && static_cast<int>(sort) != i - 1) {
+      renderer.fillRect(segX, controlY + 6, 1, calm::CONTROL_HEIGHT - 12);  // divider
+    }
+    calm::drawCenteredLabel(renderer, UI_10_FONT_ID, segX, controlY, w, calm::CONTROL_HEIGHT,
+                            sortLabel(static_cast<Sort>(i)), active,
+                            active ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    if (headerFocused && headerFocus == i) calm::drawFocusRing(renderer, segX, controlY, w, calm::CONTROL_HEIGHT);
+    segX += w;
   }
   renderer.fillRect(left, top + calm::HEADER_HEIGHT - 1, width, 1);
 }
@@ -463,24 +506,27 @@ void CalmLibraryActivity::drawRow(const int slot, const Row& row, const bool sel
   const int y = top + calm::HEADER_HEIGHT + slot * calm::ROW_HEIGHT;
   const int x = left + calm::SIDE_MARGIN;
   const int innerWidth = width - 2 * calm::SIDE_MARGIN;
-  if (selected) renderer.fillRect(left, y, width, calm::ROW_HEIGHT);
+  // Selected: a rounded pill inset from the screen edge, 2 px off each rule.
+  if (selected) calm::fillPill(renderer, left + calm::PILL_INSET, y + 2, width - 2 * calm::PILL_INSET, calm::ROW_HEIGHT - 4);
 
   const int titleY = y + calm::ROW_PADDING_TOP;
-  const std::string title = renderer.truncatedText(UI_12_FONT_ID, row.title.c_str(), innerWidth, EpdFontFamily::BOLD);
-  renderer.drawText(UI_12_FONT_ID, x, titleY, title.c_str(), !selected, EpdFontFamily::BOLD);
-
   const int detailY = titleY + renderer.getLineHeight(UI_12_FONT_ID);
-  int detailWidth = innerWidth;
+  int titleWidth = innerWidth;
   if (!row.progress.empty()) {
-    const int progressWidth = renderer.getTextWidth(UI_10_FONT_ID, row.progress.c_str());
-    renderer.drawText(UI_10_FONT_ID, x + innerWidth - progressWidth, detailY, row.progress.c_str(), !selected);
-    detailWidth -= progressWidth + calm::CHIP_GAP;
+    const int progressWidth = renderer.getTextWidth(UI_10_FONT_ID, row.progress.c_str(), EpdFontFamily::BOLD);
+    // Right-aligned and vertically centered on the row, like Calm UI.
+    const int progressY = y + (calm::ROW_HEIGHT - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
+    renderer.drawText(UI_10_FONT_ID, x + innerWidth - progressWidth, progressY, row.progress.c_str(), !selected,
+                      EpdFontFamily::BOLD);
+    titleWidth -= progressWidth + calm::CHIP_GAP;
   }
+  const std::string title = renderer.truncatedText(UI_12_FONT_ID, row.title.c_str(), titleWidth, EpdFontFamily::BOLD);
+  renderer.drawText(UI_12_FONT_ID, x, titleY, title.c_str(), !selected, EpdFontFamily::BOLD);
   if (!row.detail.empty()) {
-    const std::string detail = renderer.truncatedText(UI_10_FONT_ID, row.detail.c_str(), detailWidth);
+    const std::string detail = renderer.truncatedText(UI_10_FONT_ID, row.detail.c_str(), titleWidth);
     renderer.drawText(UI_10_FONT_ID, x, detailY, detail.c_str(), !selected);
   }
-  if (!selected) renderer.fillRectDither(left, y + calm::ROW_HEIGHT - 1, width, 1, LightGray);
+  renderer.fillRect(x, y + calm::ROW_HEIGHT - 1, innerWidth, 1);
 }
 
 void CalmLibraryActivity::render(RenderLock&&) {
@@ -499,7 +545,7 @@ void CalmLibraryActivity::render(RenderLock&&) {
   }
 
   const int pages = (bookCount + pageRows - 1) / pageRows;
-  if (pages > 1) {
+  {
     char footer[24];
     snprintf(footer, sizeof(footer), "%d / %d", loadedPage + 1, pages);
     renderer.drawCenteredText(SMALL_FONT_ID,

@@ -48,8 +48,9 @@ class CalmLibraryActivity final : public Activity {
     std::string path;
   };
 
-  // Header focus: the list owns selection >= 0; the header uses these.
-  enum class HeaderItem : uint8_t { Sort = 0, Settings = 1 };
+  // Header focus stops: the four sort segments, then the Settings cog.
+  static constexpr int HEADER_STOPS = static_cast<int>(Sort::Count) + 1;
+  static constexpr int HEADER_SETTINGS_STOP = static_cast<int>(Sort::Count);
 
   library::LibraryIndexFile index;
   Sort sort = Sort::Recent;
@@ -63,7 +64,7 @@ class CalmLibraryActivity final : public Activity {
 
   int bookCount = 0;
   int selection = 0;  // -1 = header
-  HeaderItem headerItem = HeaderItem::Sort;
+  int headerFocus = 0;
   int pageRows = 1;
   int loadedPage = -1;
   int pageRowCount = 0;
@@ -88,12 +89,12 @@ class CalmLibraryActivity final : public Activity {
   void loadPage(int page);
   bool readRow(int row, Row& out);
   void moveSelection(int next);
-  void cycleSort();
+  void setSort(Sort next);
   void openSelected();
   void openBookCard();
   void reload();
 
-  const char* sortLabel() const;
+  static const char* sortLabel(Sort sort);
   void drawScanScreen(const char* message) const;
   void drawHeader() const;
   void drawRow(int slot, const Row& row, bool selected) const;

@@ -9,6 +9,7 @@
 #include <cstring>
 #include <utility>
 
+#include "CalmDraw.h"
 #include "CalmLayout.h"
 #include "SdCardFontSystem.h"
 #include "SettingsList.h"
@@ -97,6 +98,8 @@ const char* CalmSheetActivity::rowLabel(const Row which) const {
       return tr(STR_CALM_SIZE);
     case Row::Font:
       return tr(STR_CALM_FONT);
+    case Row::AntiAliasing:
+      return tr(STR_CALM_ANTIALIASING);
     case Row::LineSpacing:
       return tr(STR_CALM_LINE_SPACING);
     case Row::Alignment:
@@ -117,6 +120,8 @@ std::string CalmSheetActivity::valueLabel(const Row which) const {
       return fontSizePointLabel(SETTINGS.readerFontPointSize);
     case Row::Font:
       return fonts.empty() ? std::string() : fonts[currentFontIndex()].label;
+    case Row::AntiAliasing:
+      return SETTINGS.textAntiAliasing ? tr(STR_CALM_ON) : tr(STR_CALM_OFF);
     case Row::LineSpacing:
       snprintf(buffer, sizeof(buffer), "%d.%02d", SETTINGS.lineHeightPercent / 100, SETTINGS.lineHeightPercent % 100);
       return buffer;
@@ -125,9 +130,9 @@ std::string CalmSheetActivity::valueLabel(const Row which) const {
         case CrossPointSettings::LEFT_ALIGN:
           return tr(STR_ALIGN_LEFT);
         case CrossPointSettings::BOOK_STYLE:
-          return tr(STR_BOOK_S_STYLE);
+          return tr(STR_CALM_BOOK_STYLE);
         default:
-          return tr(STR_JUSTIFY);
+          return tr(STR_CALM_JUSTIFIED);
       }
     case Row::Margins: {
       static constexpr StrId names[] = {StrId::STR_CALM_NARROW, StrId::STR_CALM_NORMAL, StrId::STR_WIDE};
@@ -137,8 +142,7 @@ std::string CalmSheetActivity::valueLabel(const Row which) const {
       static constexpr StrId pages[] = {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10,
                                         StrId::STR_PAGES_15, StrId::STR_PAGES_30};
       if (SETTINGS.refreshFrequency >= CrossPointSettings::REFRESH_NEVER) return tr(STR_NEVER);
-      snprintf(buffer, sizeof(buffer), tr(STR_CALM_EVERY_PAGE_N), I18N.get(pages[SETTINGS.refreshFrequency]));
-      return buffer;
+      return I18N.get(pages[SETTINGS.refreshFrequency]);
     }
     default:
       return {};
@@ -165,6 +169,10 @@ void CalmSheetActivity::step(const Row which, const int delta) {
       sizes = buildFontSizeSetting(&sdFontSystem.registry()).enumRawValues;
       break;
     }
+    case Row::AntiAliasing:
+      // Smooth gray glyph edges; Off gives crisper, faster page turns.
+      SETTINGS.textAntiAliasing = SETTINGS.textAntiAliasing ? 0 : 1;
+      break;
     case Row::LineSpacing: {
       const int index = nearestIndex(LINE_HEIGHT_PRESETS, SETTINGS.lineHeightPercent);
       const int next = std::clamp(index + delta, 0, static_cast<int>(std::size(LINE_HEIGHT_PRESETS)) - 1);
@@ -269,55 +277,70 @@ void CalmSheetActivity::render(RenderLock&&) {
   const int innerWidth = width - 2 * calm::SIDE_MARGIN;
 
   const int settingRows = static_cast<int>(Row::Count) - 1;
-  const int stripHeight = calm::HEADER_HEIGHT + 12;
-  const int infoHeight = 40;
-  const int sheetHeight = stripHeight + infoHeight + settingRows * calm::SHEET_ROW_HEIGHT;
+  constexpr int stripHeight = 58;
+  const int sheetHeight = stripHeight + 8 + settingRows * calm::SHEET_ROW_HEIGHT + 6;
   const int sheetY = bottom - sheetHeight;
+  // Rounded top corners; the top of the page stays visible above.
+  calm::drawSheet(renderer, l, sheetY, width, sheetHeight);
 
-  // The top of the page stays visible above the sheet.
-  renderer.fillRect(l, sheetY, width, sheetHeight, false);
-  renderer.fillRect(l, sheetY, width, 2);
-
-  // Row 0: Library · Contents · Go to %, as three equal chips.
-  const char* chips[] = {tr(STR_LIBRARY), tr(STR_CALM_CONTENTS), tr(STR_GO_TO_PERCENT)};
-  const int chipWidth = innerWidth / 3;
-  const int chipHeight = stripHeight - 16;
-  const int chipY = sheetY + 8;
-  const int uiLine = renderer.getLineHeight(UI_12_FONT_ID);
+  // Top strip: [‹ Library]   title / position   [Contents] [Go to %]
+  const bool stripFocused = row == static_cast<int>(Row::Actions);
+  // The third button shows the page and opens Go to %, as Calm UI's page button.
+  const std::string libraryLabel = std::string("\xE2\x80\xB9 ") + tr(STR_LIBRARY);
+  char pageLabel[24];
+  snprintf(pageLabel, sizeof(pageLabel), "%d / %d", ctx.chapterPage, ctx.chapterPageCount);
+  const char* buttonText[] = {libraryLabel.c_str(), tr(STR_CALM_CONTENTS), pageLabel};
+  constexpr int buttonPadding = 12;
+  int buttonWidth[3];
+  for (int i = 0; i < 3; i++)
+    buttonWidth[i] = renderer.getTextWidth(UI_10_FONT_ID, buttonText[i], EpdFontFamily::BOLD) + 2 * buttonPadding;
+  const int buttonY = sheetY + (stripHeight - calm::CONTROL_HEIGHT) / 2 + 2;
+  int buttonX[3];
+  buttonX[0] = x;
+  buttonX[2] = x + innerWidth - buttonWidth[2];
+  buttonX[1] = buttonX[2] - 8 - buttonWidth[1];
   for (int i = 0; i < 3; i++) {
-    const int cx = x + i * chipWidth;
-    const bool focused = row == static_cast<int>(Row::Actions) && chip == i;
-    if (focused) renderer.fillRect(cx, chipY, chipWidth, chipHeight);
-    const int textWidth = renderer.getTextWidth(UI_12_FONT_ID, chips[i]);
-    renderer.drawText(UI_12_FONT_ID, cx + (chipWidth - textWidth) / 2, chipY + (chipHeight - uiLine) / 2, chips[i],
-                      !focused);
+    const bool focused = stripFocused && chip == i;
+    calm::drawButton(renderer, buttonX[i], buttonY, buttonWidth[i], calm::CONTROL_HEIGHT, focused);
+    calm::drawCenteredLabel(renderer, UI_10_FONT_ID, buttonX[i], buttonY, buttonWidth[i], calm::CONTROL_HEIGHT,
+                            buttonText[i], focused, EpdFontFamily::BOLD);
   }
-  renderer.fillRect(l, sheetY + stripHeight - 1, width, 1);
 
-  // Info line: book title on the left, position and battery on the right.
-  char position[64];
-  snprintf(position, sizeof(position), "%d / %d  \xC2\xB7  %d%%  \xC2\xB7  %u%%", ctx.chapterPage,
-           ctx.chapterPageCount, static_cast<int>(ctx.bookProgress + 0.5f),
-           static_cast<unsigned>(powerManager.getBatteryPercentage()));
-  const int infoY = sheetY + stripHeight + (infoHeight - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
-  const int positionWidth = renderer.getTextWidth(UI_10_FONT_ID, position);
-  renderer.drawText(UI_10_FONT_ID, x + innerWidth - positionWidth, infoY, position);
-  const std::string title = renderer.truncatedText(UI_10_FONT_ID, ctx.title.c_str(),
-                                                   innerWidth - positionWidth - calm::CHIP_GAP, EpdFontFamily::BOLD);
-  renderer.drawText(UI_10_FONT_ID, x, infoY, title.c_str(), true, EpdFontFamily::BOLD);
+  // Centre: book title over "page / pages · book %" and a battery glyph.
+  const int centreX = buttonX[0] + buttonWidth[0] + 8;
+  const int centreWidth = buttonX[1] - 8 - centreX;
+  const int smallLine = renderer.getLineHeight(SMALL_FONT_ID);
+  const int titleLine = renderer.getLineHeight(UI_10_FONT_ID);
+  const int centreTop = sheetY + (stripHeight - titleLine - smallLine) / 2 + 2;
+  const std::string title =
+      renderer.truncatedText(UI_10_FONT_ID, ctx.title.c_str(), centreWidth, EpdFontFamily::BOLD);
+  const int titleWidth = renderer.getTextWidth(UI_10_FONT_ID, title.c_str(), EpdFontFamily::BOLD);
+  renderer.drawText(UI_10_FONT_ID, centreX + (centreWidth - titleWidth) / 2, centreTop, title.c_str(), true,
+                    EpdFontFamily::BOLD);
+  char position[40];
+  snprintf(position, sizeof(position), "%d%%", static_cast<int>(ctx.bookProgress + 0.5f));
+  const int positionWidth = renderer.getTextWidth(SMALL_FONT_ID, position);
+  const int infoWidth = positionWidth + 8 + calm::BATTERY_WIDTH;
+  const int infoX = centreX + (centreWidth - infoWidth) / 2;
+  const int infoY = centreTop + titleLine;
+  renderer.drawText(SMALL_FONT_ID, infoX, infoY, position);
+  calm::drawBattery(renderer, infoX + positionWidth + 8, infoY + (smallLine - calm::BATTERY_HEIGHT) / 2,
+                    powerManager.getBatteryPercentage());
+  renderer.fillRect(l, sheetY + stripHeight, width, 1);
 
-  // Setting rows: label on the left, "‹ value ›" on the right.
-  int y = sheetY + stripHeight + infoHeight;
-  const int labelOffset = (calm::SHEET_ROW_HEIGHT - uiLine) / 2;
+  // Setting rows: label on the left, a rounded ‹ value › stepper on the right.
+  constexpr int stepperWidth = 214;
+  constexpr int stepperHeight = 36;
+  const int uiLine = renderer.getLineHeight(UI_12_FONT_ID);
+  int y = sheetY + stripHeight + 8;
   for (int i = 1; i < static_cast<int>(Row::Count); i++) {
     const auto which = static_cast<Row>(i);
-    const bool selected = row == i;
-    renderer.fillRectDither(l, y, width, 1, LightGray);
-    if (selected) renderer.fillRect(l, y, width, calm::SHEET_ROW_HEIGHT);
-    renderer.drawText(UI_12_FONT_ID, x, y + labelOffset, rowLabel(which), !selected);
-    const std::string value = "\xE2\x80\xB9  " + valueLabel(which) + "  \xE2\x80\xBA";  // ‹ value ›
-    const int valueWidth = renderer.getTextWidth(UI_12_FONT_ID, value.c_str());
-    renderer.drawText(UI_12_FONT_ID, x + innerWidth - valueWidth, y + labelOffset, value.c_str(), !selected);
+    const bool focused = row == i;
+    renderer.drawText(UI_12_FONT_ID, x, y + (calm::SHEET_ROW_HEIGHT - uiLine) / 2, rowLabel(which), true,
+                      focused ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    const std::string value = valueLabel(which);
+    calm::drawStepper(renderer, x + innerWidth - stepperWidth, y + (calm::SHEET_ROW_HEIGHT - stepperHeight) / 2,
+                      stepperWidth, stepperHeight, value.c_str(), focused);
     y += calm::SHEET_ROW_HEIGHT;
   }
   renderer.displayBuffer();

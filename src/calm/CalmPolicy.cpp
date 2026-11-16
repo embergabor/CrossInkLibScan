@@ -22,6 +22,21 @@ void applySettingsPolicy(CrossPointSettings& settings) {
   bottom.slots[ReaderStatusBarConfig::CENTER] = ReaderStatusBarItem::ChapterPageCount;
   settings.bottomReaderStatusBar = bottom;
 
+  // Upstream's 5 px reading margins are cramped at 220 ppi. A settings file
+  // still on that default starts on the sheet's "Normal" preset instead.
+  if (settings.screenMarginHorizontal == 5 && settings.screenMarginVertical == 5) {
+    settings.screenMarginHorizontal = 20;
+    settings.screenMarginVertical = 12;
+  }
+
+  // Upstream's 100% line height is dense next to Calm UI's reading page; an
+  // untouched default starts at the sheet's 1.20 step instead.
+  if (settings.lineHeightPercent == 100) settings.lineHeightPercent = 120;
+
+  // Justified text without hyphenation opens wide gaps between words on a
+  // 480 px page. Calm builds always hyphenate (English patterns only).
+  settings.hyphenationEnabled = 1;
+
   // The calm Library shows titles and authors from EPUB metadata.
   settings.libraryUseMetadata = 1;
 

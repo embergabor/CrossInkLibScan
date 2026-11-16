@@ -6,12 +6,13 @@
 #include <Logging.h>
 #include <Memory.h>
 
+#include <algorithm>
 #include <utility>
 
+#include "CalmDraw.h"
 #include "CalmLayout.h"
 #include "RecentBooksStore.h"
 #include "activities/home/BookActions.h"
-#include "activities/util/ConfirmationActivity.h"
 #include "fontIds.h"
 
 namespace {
@@ -50,18 +51,20 @@ std::vector<std::string> wrapText(const GfxRenderer& renderer, const int fontId,
 }  // namespace
 
 CalmBookCardActivity::CalmBookCardActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string path,
-                                           std::string title, std::string detail, std::string progress)
+                                           std::string title, std::string detail, std::string progress,
+                                           const int anchorTop, const int anchorBottom)
     : Activity("CalmBookCard", renderer, mappedInput),
       path(std::move(path)),
       title(std::move(title)),
       detail(std::move(detail)),
-      progress(std::move(progress)) {}
+      progress(std::move(progress)),
+      anchorTop(anchorTop),
+      anchorBottom(anchorBottom) {}
 
 void CalmBookCardActivity::onEnter() {
   Activity::onEnter();
   completed = BookActions::isBookCompleted(path);
-  actions = {Action::Open, Action::ToggleFinished, Action::Delete};
-  selected = 0;
+  showActions(false);
   // The long press that opened the card is still held.
   ignoreConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
   requestUpdate();
@@ -70,11 +73,14 @@ void CalmBookCardActivity::onEnter() {
 const char* CalmBookCardActivity::actionLabel(const Action action) const {
   switch (action) {
     case Action::Open:
-      return progress.empty() ? tr(STR_OPEN) : tr(STR_CONTINUE_READING);
+      return progress.empty() || progress == tr(STR_CALM_NEW) ? tr(STR_CALM_OPEN) : tr(STR_CALM_CONTINUE);
     case Action::ToggleFinished:
-      return completed ? tr(STR_MARK_UNFINISHED) : tr(STR_MARK_FINISHED);
+      return completed ? tr(STR_CALM_MARK_UNREAD) : tr(STR_CALM_MARK_FINISHED);
     case Action::Delete:
+    case Action::ConfirmDelete:
       return tr(STR_DELETE);
+    case Action::CancelDelete:
+      return tr(STR_CANCEL);
   }
   return "";
 }
@@ -99,28 +105,40 @@ void CalmBookCardActivity::run(const Action action) {
       return;
     }
     case Action::Delete:
-      confirmDelete();
+      showActions(true);
+      return;
+    case Action::CancelDelete:
+      showActions(false);
+      return;
+    case Action::ConfirmDelete:
+      deleteBook();
       return;
   }
 }
 
-void CalmBookCardActivity::confirmDelete() {
-  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_CALM_DELETE_BOOK), title);
-  if (!dialog) {
-    LOG_ERR("CALM", "Cannot allocate delete confirmation");
+void CalmBookCardActivity::showActions(const bool confirmDelete) {
+  confirmingDelete = confirmDelete;
+  if (confirmDelete) {
+    // Cancel first, so a stray Confirm never deletes.
+    actions = {Action::CancelDelete, Action::ConfirmDelete};
+    selected = 0;
+  } else {
+    actions = {Action::Open, Action::ToggleFinished, Action::Delete};
+    selected = 0;
+  }
+  requestUpdate();
+}
+
+void CalmBookCardActivity::deleteBook() {
+  BookActions::clearFileMetadata(path);
+  if (!Storage.remove(path.c_str())) {
+    LOG_ERR("CALM", "Failed to delete %s", path.c_str());
+    showActions(false);
     return;
   }
-  startActivityForResult(std::move(dialog), [this](const ActivityResult& result) {
-    if (result.isCancelled) return;
-    BookActions::clearFileMetadata(path);
-    if (!Storage.remove(path.c_str())) {
-      LOG_ERR("CALM", "Failed to delete %s", path.c_str());
-      return;
-    }
-    library::invalidateLibraryIndex();
-    RECENT_BOOKS.removeByPath(path);
-    close(Outcome::Deleted);
-  });
+  library::invalidateLibraryIndex();
+  RECENT_BOOKS.removeByPath(path);
+  close(Outcome::Deleted);
 }
 
 void CalmBookCardActivity::loop() {
@@ -130,6 +148,10 @@ void CalmBookCardActivity::loop() {
     return;
   }
   if (mappedInput.wasReleased(Button::Back)) {
+    if (confirmingDelete) {
+      showActions(false);
+      return;
+    }
     ActivityResult result;
     result.isCancelled = true;
     setResult(std::move(result));
@@ -154,54 +176,72 @@ void CalmBookCardActivity::render(RenderLock&&) {
   int t = 0, r = 0, b = 0, l = 0;
   renderer.getOrientedViewableTRBL(&t, &r, &b, &l);
   const int screenWidth = renderer.getScreenWidth() - l - r;
-  const int screenHeight = renderer.getScreenHeight() - t - b;
+  const int screenBottom = renderer.getScreenHeight() - b;
 
+  constexpr int pad = 12;
+  constexpr int buttonHeight = 40;
+  constexpr int buttonGap = 8;
   const int cardX = l + calm::SIDE_MARGIN;
   const int cardWidth = screenWidth - 2 * calm::SIDE_MARGIN;
-  const int innerX = cardX + calm::CARD_PADDING;
-  const int innerWidth = cardWidth - 2 * calm::CARD_PADDING;
+  const int innerX = cardX + pad;
+  const int innerWidth = cardWidth - 2 * pad;
 
-  const auto titleLines = wrapText(renderer, UI_12_FONT_ID, title, innerWidth, 3, EpdFontFamily::BOLD);
-  const int titleLine = renderer.getLineHeight(UI_12_FONT_ID);
+  // Serif title, as in Calm UI's card.
+  const auto titleLines = wrapText(renderer, BITTER_14_FONT_ID, title, innerWidth, 3, EpdFontFamily::BOLD);
+  const int titleLine = renderer.getLineHeight(BITTER_14_FONT_ID);
   const int detailLine = renderer.getLineHeight(UI_10_FONT_ID);
-  int contentHeight = static_cast<int>(titleLines.size()) * titleLine;
-  if (!detail.empty()) contentHeight += detailLine + 6;
-  const char* state = completed ? tr(STR_CALM_FINISHED) : progress.c_str();
-  if (state && *state) contentHeight += detailLine;
-  const int actionsHeight = static_cast<int>(actions.size()) * calm::ACTION_ROW_HEIGHT;
-  const int cardHeight = 2 * calm::CARD_PADDING + contentHeight + calm::CARD_PADDING + actionsHeight;
-  const int cardY = t + (screenHeight - cardHeight) / 3;
+  // Confirming a delete swaps the status line for the question, so the card
+  // keeps one height and leaves nothing stale behind when it toggles back.
+  const char* state = confirmingDelete ? tr(STR_CALM_DELETE_BOOK) : completed ? tr(STR_CALM_FINISHED) : progress.c_str();
+  const bool hasState = state && *state;
+  const int bodyHeight = static_cast<int>(titleLines.size()) * titleLine + (detail.empty() ? 0 : 4 + detailLine) +
+                         (hasState ? 2 + detailLine : 0);
+  const int cardHeight = pad + bodyHeight + pad + buttonHeight + pad;
 
-  // The Library stays in the framebuffer around the card.
-  renderer.fillRect(cardX, cardY, cardWidth, cardHeight, false);
-  renderer.drawRect(cardX, cardY, cardWidth, cardHeight, calm::CARD_BORDER, true);
+  // Beside the selected row: below it in the top half, above it otherwise.
+  const int listTop = t + calm::HEADER_HEIGHT + 8;
+  int cardY = (anchorTop + anchorBottom) / 2 < (t + screenBottom) / 2 ? anchorBottom + 10 : anchorTop - 10 - cardHeight;
+  cardY = std::clamp(cardY, listTop, screenBottom - calm::FOOTER_HEIGHT - cardHeight);
 
-  int y = cardY + calm::CARD_PADDING;
+  // Clear every Library row the card overlaps (whole rows, never half a line
+  // of text), keeping the selected row beside it visible.
+  const int rowsTop = t + calm::HEADER_HEIGHT;
+  const int clearTop = std::max(rowsTop, rowsTop + (cardY - 4 - rowsTop) / calm::ROW_HEIGHT * calm::ROW_HEIGHT);
+  const int below = cardY + cardHeight + 4 - rowsTop;
+  const int clearBottom = std::min(screenBottom - calm::FOOTER_HEIGHT,
+                                   rowsTop + (below + calm::ROW_HEIGHT - 1) / calm::ROW_HEIGHT * calm::ROW_HEIGHT);
+  // The card sits wholly below or above the selected row and both of those
+  // edges are row boundaries, so this never erases the selected book.
+  if (clearBottom > clearTop) renderer.fillRect(l, clearTop, screenWidth, clearBottom - clearTop, false);
+  renderer.fillRoundedRect(cardX, cardY, cardWidth, cardHeight, calm::SHEET_RADIUS, Color::White);
+  renderer.drawRoundedRect(cardX, cardY, cardWidth, cardHeight, calm::CARD_BORDER, calm::SHEET_RADIUS, true);
+
+  int y = cardY + pad;
   for (const auto& line : titleLines) {
-    renderer.drawText(UI_12_FONT_ID, innerX, y, line.c_str(), true, EpdFontFamily::BOLD);
+    renderer.drawText(BITTER_14_FONT_ID, innerX, y, line.c_str(), true, EpdFontFamily::BOLD);
     y += titleLine;
   }
   if (!detail.empty()) {
-    y += 6;
+    y += 4;
     const std::string text = renderer.truncatedText(UI_10_FONT_ID, detail.c_str(), innerWidth);
     renderer.drawText(UI_10_FONT_ID, innerX, y, text.c_str());
     y += detailLine;
   }
-  if (state && *state) {
-    renderer.drawText(UI_10_FONT_ID, innerX, y, state);
-    y += detailLine;
+  if (hasState) {
+    y += 2;
+    renderer.drawText(UI_10_FONT_ID, innerX, y, state, true, EpdFontFamily::BOLD);
   }
 
-  y = cardY + cardHeight - calm::CARD_BORDER - actionsHeight;
-  renderer.fillRect(cardX, y - 1, cardWidth, 1);
-  const int labelOffset = (calm::ACTION_ROW_HEIGHT - renderer.getLineHeight(UI_12_FONT_ID)) / 2;
-  for (size_t i = 0; i < actions.size(); i++) {
-    const bool isSelected = static_cast<int>(i) == selected;
-    if (isSelected) {
-      renderer.fillRect(cardX + calm::CARD_BORDER, y, cardWidth - 2 * calm::CARD_BORDER, calm::ACTION_ROW_HEIGHT);
-    }
-    renderer.drawText(UI_12_FONT_ID, innerX, y + labelOffset, actionLabel(actions[i]), !isSelected);
-    y += calm::ACTION_ROW_HEIGHT;
+  y = cardY + cardHeight - pad - buttonHeight;
+  // Actions side by side as rounded buttons; the focused one is filled.
+  const int count = static_cast<int>(actions.size());
+  const int buttonWidth = (innerWidth - (count - 1) * buttonGap) / count;
+  for (int i = 0; i < count; i++) {
+    const int bx = innerX + i * (buttonWidth + buttonGap);
+    const bool focused = i == selected;
+    calm::drawButton(renderer, bx, y, buttonWidth, buttonHeight, focused);
+    calm::drawCenteredLabel(renderer, UI_10_FONT_ID, bx, y, buttonWidth, buttonHeight, actionLabel(actions[i]),
+                            focused);
   }
   renderer.displayBuffer();
 }
