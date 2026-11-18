@@ -46,7 +46,9 @@ int wrapIndex(const int index, const int delta, const int count) { return ((inde
 }  // namespace
 
 CalmSheetActivity::CalmSheetActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, Context context)
-    : Activity("CalmSheet", renderer, mappedInput), ctx(std::move(context)) {}
+    : Activity("CalmSheet", renderer, mappedInput), ctx(std::move(context)) {
+  if (ctx.initialRow > 0 && ctx.initialRow < static_cast<int>(Row::Count)) row = ctx.initialRow;
+}
 
 void CalmSheetActivity::onEnter() {
   Activity::onEnter();
@@ -205,7 +207,7 @@ void CalmSheetActivity::step(const Row which, const int delta) {
   requestUpdate();
 }
 
-void CalmSheetActivity::closeWithAction(const int action) {
+void CalmSheetActivity::closeWithAction(const int action, const bool reopen) {
   if (changed && ctx.saveGlobal) ctx.saveGlobal(ctx.readerContext);
   if (ctx.endGlobalEdit) ctx.endGlobalEdit(ctx.readerContext);
   MenuResult menu;
@@ -213,6 +215,9 @@ void CalmSheetActivity::closeWithAction(const int action) {
   menu.orientation = SETTINGS.orientation;
   menu.settingsChanged = changed;
   menu.changeMask = changed ? ReaderSettingsChangeMask::Relayout : ReaderSettingsChangeMask::None;
+  // The reader reopens the sheet on this row once the new layout is on screen.
+  menu.reopenDrawer = reopen;
+  menu.drawerValue = static_cast<int16_t>(row);
   ActivityResult result;
   result.data = menu;
   result.isCancelled = action < 0;
@@ -235,13 +240,11 @@ void CalmSheetActivity::loop() {
   const auto current = static_cast<Row>(row);
   if (mappedInput.wasReleased(Button::Confirm)) {
     if (current != Row::Actions) {
-      closeSheet();
+      // Apply now and come back, so the page shows the new setting.
+      if (changed) closeWithAction(-1, true);
       return;
     }
     switch (static_cast<ActionChip>(chip)) {
-      case ActionChip::Library:
-        closeWithAction(static_cast<int>(EpubReaderMenuAction::GO_HOME));
-        return;
       case ActionChip::Contents:
         closeWithAction(static_cast<int>(EpubReaderMenuAction::SELECT_CHAPTER));
         return;
@@ -276,63 +279,60 @@ void CalmSheetActivity::render(RenderLock&&) {
   const int x = l + calm::SIDE_MARGIN;
   const int innerWidth = width - 2 * calm::SIDE_MARGIN;
 
+  // Header: the book's title, wrapped to at most three lines, with the
+  // battery level on the right.
+  char battery[8];
+  snprintf(battery, sizeof(battery), "%u%%", static_cast<unsigned>(powerManager.getBatteryPercentage()));
+  const int batteryTextWidth = renderer.getTextWidth(UI_10_FONT_ID, battery);
+  const int infoWidth = batteryTextWidth + 6 + calm::BATTERY_WIDTH;
+  const int titleLine = renderer.getLineHeight(UI_12_FONT_ID);
+  const auto titleLines =
+      calm::wrapText(renderer, UI_12_FONT_ID, ctx.title, innerWidth - infoWidth - 16, 3, EpdFontFamily::BOLD);
+  constexpr int headerPadTop = 10;
+  constexpr int headerPadBottom = 8;
+  const int headerHeight = headerPadTop + std::max<int>(1, titleLines.size()) * titleLine + headerPadBottom;
+  constexpr int actionHeight = 52;
   const int settingRows = static_cast<int>(Row::Count) - 1;
-  constexpr int stripHeight = 58;
-  const int sheetHeight = stripHeight + 8 + settingRows * calm::SHEET_ROW_HEIGHT + 6;
+  const int sheetHeight = headerHeight + actionHeight + settingRows * calm::SHEET_ROW_HEIGHT + 12;
   const int sheetY = bottom - sheetHeight;
   // Rounded top corners; the top of the page stays visible above.
   calm::drawSheet(renderer, l, sheetY, width, sheetHeight);
 
-  // Top strip: [‹ Library]   title / position   [Contents] [Go to %]
-  const bool stripFocused = row == static_cast<int>(Row::Actions);
-  // The third button shows the page and opens Go to %, as Calm UI's page button.
-  const std::string libraryLabel = std::string("\xE2\x80\xB9 ") + tr(STR_LIBRARY);
-  char pageLabel[24];
-  snprintf(pageLabel, sizeof(pageLabel), "%d / %d", ctx.chapterPage, ctx.chapterPageCount);
-  const char* buttonText[] = {libraryLabel.c_str(), tr(STR_CALM_CONTENTS), pageLabel};
-  constexpr int buttonPadding = 12;
-  int buttonWidth[3];
-  for (int i = 0; i < 3; i++)
-    buttonWidth[i] = renderer.getTextWidth(UI_10_FONT_ID, buttonText[i], EpdFontFamily::BOLD) + 2 * buttonPadding;
-  const int buttonY = sheetY + (stripHeight - calm::CONTROL_HEIGHT) / 2 + 2;
-  int buttonX[3];
-  buttonX[0] = x;
-  buttonX[2] = x + innerWidth - buttonWidth[2];
-  buttonX[1] = buttonX[2] - 8 - buttonWidth[1];
-  for (int i = 0; i < 3; i++) {
-    const bool focused = stripFocused && chip == i;
-    calm::drawButton(renderer, buttonX[i], buttonY, buttonWidth[i], calm::CONTROL_HEIGHT, focused);
-    calm::drawCenteredLabel(renderer, UI_10_FONT_ID, buttonX[i], buttonY, buttonWidth[i], calm::CONTROL_HEIGHT,
+  int lineY = sheetY + headerPadTop;
+  for (const auto& line : titleLines) {
+    renderer.drawText(UI_12_FONT_ID, x, lineY, line.c_str(), true, EpdFontFamily::BOLD);
+    lineY += titleLine;
+  }
+  const int infoX = x + innerWidth - infoWidth;
+  const int smallLine = renderer.getLineHeight(UI_10_FONT_ID);
+  const int infoY = sheetY + headerPadTop + (titleLine - smallLine) / 2;
+  renderer.drawText(UI_10_FONT_ID, infoX, infoY, battery);
+  calm::drawBattery(renderer, infoX + batteryTextWidth + 6, infoY + (smallLine - calm::BATTERY_HEIGHT) / 2,
+                    powerManager.getBatteryPercentage());
+  renderer.fillRect(x, sheetY + headerHeight, innerWidth, 1);
+
+  // Action row: two equal buttons, Contents and the position (which opens Go to %).
+  const bool actionsFocused = row == static_cast<int>(Row::Actions);
+  char pageLabel[32];
+  snprintf(pageLabel, sizeof(pageLabel), "%d / %d \xC2\xB7 %d%%", ctx.chapterPage, ctx.chapterPageCount,
+           static_cast<int>(ctx.bookProgress + 0.5f));
+  const char* buttonText[] = {tr(STR_CALM_CONTENTS), pageLabel};
+  constexpr int buttonGap = 10;
+  const int buttonWidth = (innerWidth - buttonGap) / 2;
+  const int buttonY = sheetY + headerHeight + (actionHeight - calm::CONTROL_HEIGHT - 4) / 2 + 2;
+  for (int i = 0; i < static_cast<int>(ActionChip::Count); i++) {
+    const bool focused = actionsFocused && chip == i;
+    const int bx = x + i * (buttonWidth + buttonGap);
+    calm::drawButton(renderer, bx, buttonY, buttonWidth, calm::CONTROL_HEIGHT + 4, focused);
+    calm::drawCenteredLabel(renderer, UI_10_FONT_ID, bx, buttonY, buttonWidth, calm::CONTROL_HEIGHT + 4,
                             buttonText[i], focused, EpdFontFamily::BOLD);
   }
-
-  // Centre: book title over "page / pages · book %" and a battery glyph.
-  const int centreX = buttonX[0] + buttonWidth[0] + 8;
-  const int centreWidth = buttonX[1] - 8 - centreX;
-  const int smallLine = renderer.getLineHeight(SMALL_FONT_ID);
-  const int titleLine = renderer.getLineHeight(UI_10_FONT_ID);
-  const int centreTop = sheetY + (stripHeight - titleLine - smallLine) / 2 + 2;
-  const std::string title =
-      renderer.truncatedText(UI_10_FONT_ID, ctx.title.c_str(), centreWidth, EpdFontFamily::BOLD);
-  const int titleWidth = renderer.getTextWidth(UI_10_FONT_ID, title.c_str(), EpdFontFamily::BOLD);
-  renderer.drawText(UI_10_FONT_ID, centreX + (centreWidth - titleWidth) / 2, centreTop, title.c_str(), true,
-                    EpdFontFamily::BOLD);
-  char position[40];
-  snprintf(position, sizeof(position), "%d%%", static_cast<int>(ctx.bookProgress + 0.5f));
-  const int positionWidth = renderer.getTextWidth(SMALL_FONT_ID, position);
-  const int infoWidth = positionWidth + 8 + calm::BATTERY_WIDTH;
-  const int infoX = centreX + (centreWidth - infoWidth) / 2;
-  const int infoY = centreTop + titleLine;
-  renderer.drawText(SMALL_FONT_ID, infoX, infoY, position);
-  calm::drawBattery(renderer, infoX + positionWidth + 8, infoY + (smallLine - calm::BATTERY_HEIGHT) / 2,
-                    powerManager.getBatteryPercentage());
-  renderer.fillRect(l, sheetY + stripHeight, width, 1);
 
   // Setting rows: label on the left, a rounded ‹ value › stepper on the right.
   constexpr int stepperWidth = 214;
   constexpr int stepperHeight = 36;
   const int uiLine = renderer.getLineHeight(UI_12_FONT_ID);
-  int y = sheetY + stripHeight + 8;
+  int y = sheetY + headerHeight + actionHeight;
   for (int i = 1; i < static_cast<int>(Row::Count); i++) {
     const auto which = static_cast<Row>(i);
     const bool focused = row == i;

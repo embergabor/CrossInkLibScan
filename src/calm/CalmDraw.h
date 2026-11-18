@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <string>
+#include <vector>
 
 #include "fontIds.h"
 
@@ -105,6 +107,37 @@ inline void drawStepper(const GfxRenderer& renderer, const int x, const int y, c
 // Small uppercase section label, as Calm UI's "SIZE", "FONT", "SLEEP".
 inline void drawSectionLabel(const GfxRenderer& renderer, const int x, const int y, const char* text) {
   renderer.drawText(SMALL_FONT_ID, x, y, text, true, EpdFontFamily::BOLD);
+}
+
+// Greedy word wrap into at most maxLines lines; the last line is ellipsized.
+inline std::vector<std::string> wrapText(const GfxRenderer& renderer, const int fontId, const std::string& text,
+                                  const int maxWidth, const size_t maxLines, const EpdFontFamily::Style style) {
+  std::vector<std::string> lines;
+  std::string line;
+  size_t pos = 0;
+  while (pos < text.size() && lines.size() < maxLines) {
+    size_t next = text.find(' ', pos);
+    if (next == std::string::npos) next = text.size();
+    const std::string word = text.substr(pos, next - pos);
+    const std::string candidate = line.empty() ? word : line + " " + word;
+    if (line.empty() || renderer.getTextWidth(fontId, candidate.c_str(), style) <= maxWidth) {
+      line = candidate;
+      pos = next + 1;
+      continue;
+    }
+    lines.push_back(line);
+    line.clear();
+  }
+  if (!line.empty() && lines.size() < maxLines) {
+    lines.push_back(line);
+  } else if (!lines.empty() && (!line.empty() || pos < text.size())) {
+    // Text left over: mark the cut on the last visible line.
+    std::string rest = line;
+    if (pos < text.size()) rest += (rest.empty() ? "" : " ") + text.substr(pos);
+    lines.back() = renderer.truncatedText(fontId, (lines.back() + " " + rest).c_str(), maxWidth, style);
+  }
+  for (auto& l : lines) l = renderer.truncatedText(fontId, l.c_str(), maxWidth, style);
+  return lines;
 }
 
 }  // namespace calm

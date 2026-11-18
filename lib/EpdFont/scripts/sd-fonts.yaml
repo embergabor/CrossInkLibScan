@@ -112,6 +112,9 @@ families:
     languages: "Latin, Greek, Cyrillic"
     intervals: latin-ext,greek,cyrillic
     sizes: [8, 9, 10, 12, 14, 16, 18, 20]
+    # Literata's own TrueType hints give uneven 2/3 px stems at 14 pt (150 dpi);
+    # FreeType's auto-hinter keeps stem widths consistent at every size.
+    force_autohint: true
     styles:
       regular: { url: "https://raw.githubusercontent.com/googlefonts/literata/main/fonts/ttf/Literata-Regular.ttf" }
       bold: { url: "https://raw.githubusercontent.com/googlefonts/literata/main/fonts/ttf/Literata-Bold.ttf" }

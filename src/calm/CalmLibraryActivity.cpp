@@ -1,5 +1,7 @@
 #include "CalmLibraryActivity.h"
 
+#include <Bitmap.h>
+#include <Epub.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -66,6 +68,25 @@ bool decodeSeriesPosition(const uint32_t stored, float& out) {
   return std::isfinite(out);
 }
 
+// Written next to a book's cache when it has no usable cover, so the Library
+// does not reopen the EPUB on every visit.
+std::string noCoverMarker(const Epub& epub) { return epub.getCachePath() + "/calm_nocover"; }
+
+// Present once every book in the current index has a cover (or is known to
+// have none). A rescan removes it, so new books get covers on the next visit.
+constexpr const char* COVERS_DONE_MARKER = "/.crosspoint/calm_covers_done";
+
+enum class CoverNeed : uint8_t { NotEpub, Have, Missing };
+
+CoverNeed coverNeed(const std::string& path) {
+  if (!FsHelpers::hasEpubExtension(path)) return CoverNeed::NotEpub;
+  const Epub epub(path, "/.crosspoint");
+  if (Storage.exists(epub.getThumbBmpPath(calm::COVER_WIDTH, calm::COVER_HEIGHT).c_str()) ||
+      Storage.exists(noCoverMarker(epub).c_str()))
+    return CoverNeed::Have;
+  return CoverNeed::Missing;
+}
+
 std::string fileStem(const std::string& path) {
   const auto slash = path.find_last_of('/');
   std::string name = path.substr(slash == std::string::npos ? 0 : slash + 1);
@@ -98,9 +119,83 @@ void CalmLibraryActivity::onEnter() {
   {
     RenderLock lock;
     ensureIndex();
+    prepareCovers();
     reload();
   }
   requestUpdate();
+}
+
+void CalmLibraryActivity::drawCoverProgress(const int done, const int total) const {
+  renderer.clearScreen();
+  const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int centerY = top + height / 2;
+  renderer.drawCenteredText(UI_12_FONT_ID, centerY - 2 * lineHeight, tr(STR_CALM_PREPARING_COVERS), true,
+                            EpdFontFamily::BOLD);
+  char count[32];
+  snprintf(count, sizeof(count), tr(STR_CALM_COVER_COUNT), static_cast<unsigned>(done), static_cast<unsigned>(total));
+  renderer.drawCenteredText(UI_10_FONT_ID, centerY - lineHeight + 4, count);
+  // A rounded progress bar.
+  const int barWidth = width - 8 * calm::SIDE_MARGIN;
+  const int barX = left + (width - barWidth) / 2;
+  const int barY = centerY + 8;
+  constexpr int barHeight = 12;
+  renderer.drawRoundedRect(barX, barY, barWidth, barHeight, 1, barHeight / 2, true);
+  const int fill = total > 0 ? (barWidth - 4) * done / total : 0;
+  if (fill > 0) renderer.fillRoundedRect(barX + 2, barY + 2, std::max(fill, barHeight - 4), barHeight - 4,
+                                         (barHeight - 4) / 2, Color::Black);
+  renderer.drawCenteredText(UI_10_FONT_ID, barY + barHeight + lineHeight, tr(STR_CALM_BACK_TO_SKIP));
+  renderer.displayBuffer(done == 0 ? HalDisplay::FULL_REFRESH : HalDisplay::FAST_REFRESH);
+}
+
+void CalmLibraryActivity::prepareCovers() {
+  // Called with the render lock held. Covers are made once; afterwards the
+  // marker skips even the per-book existence checks.
+  if (!index.isOpen() || Storage.exists(COVERS_DONE_MARKER)) return;
+  const int count = index.bookCount();
+
+  // Pass 1: count what is missing (cheap: two file checks per book).
+  int missing = 0;
+  library::ClixRecord record{};
+  std::string path;
+  for (int ordinal = 0; ordinal < count; ordinal++) {
+    if (!index.readRecord(static_cast<uint16_t>(ordinal), record) || !index.readPath(record, path)) continue;
+    if (coverNeed(path) == CoverNeed::Missing) missing++;
+  }
+
+  // Pass 2: make them, with progress and Back to skip (the rest show a blank
+  // book and are tried again on the next boot).
+  bool skipped = false;
+  int done = 0;
+  if (missing > 0) drawCoverProgress(0, missing);
+  for (int ordinal = 0; ordinal < count && done < missing; ordinal++) {
+    if (scanCancelRequested(this)) {
+      skipped = true;
+      break;
+    }
+    if (!index.readRecord(static_cast<uint16_t>(ordinal), record) || !index.readPath(record, path)) continue;
+    if (coverNeed(path) != CoverNeed::Missing) continue;
+    Epub epub(path, "/.crosspoint");
+    if (!epub.generateThumbBmpFromSource(calm::COVER_WIDTH, calm::COVER_HEIGHT, &renderer,
+                                         SETTINGS.getReaderFontId())) {
+      LOG_INF("CALM", "No cover for %s", path.c_str());
+      FsFile marker;
+      if (Storage.openFileForWrite("CALM", noCoverMarker(epub), marker)) marker.close();
+    }
+    done++;
+    drawCoverProgress(done, missing);
+  }
+  if (skipped) {
+    LOG_INF("CALM", "Cover preparation skipped at %d of %d", done, missing);
+    // Wait for Back to be let go so the Library does not read it as a press.
+    while (mappedInput.isPressed(MappedInputManager::Button::Back)) {
+      delay(10);
+      mappedInput.update();
+    }
+    return;
+  }
+  FsFile marker;
+  if (Storage.openFileForWrite("CALM", COVERS_DONE_MARKER, marker)) marker.close();
+  LOG_INF("CALM", "Covers ready: made %d", done);
 }
 
 void CalmLibraryActivity::onExit() {
@@ -118,6 +213,8 @@ void CalmLibraryActivity::computeLayout() {
   height = renderer.getScreenHeight() - t - b;
   const int listHeight = height - calm::HEADER_HEIGHT - calm::FOOTER_HEIGHT;
   pageRows = std::clamp(listHeight / calm::ROW_HEIGHT, 1, MAX_PAGE_ROWS);
+  // Share the leftover height between the rows so the list fills the screen.
+  rowHeight = std::max(calm::ROW_HEIGHT, listHeight / pageRows);
 }
 
 bool CalmLibraryActivity::ensureIndex() {
@@ -131,6 +228,8 @@ bool CalmLibraryActivity::ensureIndex() {
 
 bool CalmLibraryActivity::rebuildIndex() {
   index.close();
+  // New books may arrive with this scan; let them get covers.
+  if (Storage.exists(COVERS_DONE_MARKER)) Storage.remove(COVERS_DONE_MARKER);
   library::BuildStats stats;
   library::BuildCallbacks callbacks;
   callbacks.context = this;
@@ -278,7 +377,14 @@ bool CalmLibraryActivity::readRow(const int row, Row& out) {
                                                                   : RecentBookProgress::loadPercent(*it);
       out.progress = RecentBookProgress::formatPercent(percent);
     }
-    if (out.progress.empty()) out.progress = tr(STR_CALM_NEW);
+  }
+
+  out.coverPath.clear();
+  out.cover = Cover::None;
+  if (FsHelpers::hasEpubExtension(out.path)) {
+    const Epub epub(out.path, "/.crosspoint");
+    out.coverPath = epub.getThumbBmpPath(calm::COVER_WIDTH, calm::COVER_HEIGHT);
+    if (Storage.exists(out.coverPath.c_str())) out.cover = Cover::Ready;
   }
   return true;
 }
@@ -302,7 +408,10 @@ void CalmLibraryActivity::moveSelection(const int next) {
   {
     // loadPage() rewrites the rows render() is drawing.
     RenderLock lock;
-    if (next < 0 && selection >= 0) headerFocus = static_cast<int>(sort);  // arrive on the active sort
+    if (next < 0 && selection >= 0) {
+      headerFocus = static_cast<int>(sort);  // arrive on the active sort
+      lastListSelection = selection;
+    }
     selection = std::clamp(next, -1, bookCount - 1);
     if (selection >= 0) loadPage(selection / pageRows);
   }
@@ -320,6 +429,7 @@ void CalmLibraryActivity::setSort(const Sort next) {
     // Stay on the header so the next Left/Right keeps browsing sorts.
     reload();
     selection = -1;
+    lastListSelection = 0;  // a new order starts from its first book
   }
   requestUpdate();
 }
@@ -335,9 +445,9 @@ void CalmLibraryActivity::openSelected() {
 void CalmLibraryActivity::openBookCard() {
   if (selection < 0 || selection >= bookCount) return;
   const Row row = rows[selection - loadedPage * pageRows];
-  const int rowTop = top + calm::HEADER_HEIGHT + (selection - loadedPage * pageRows) * calm::ROW_HEIGHT;
+  const int rowTop = top + calm::HEADER_HEIGHT + (selection - loadedPage * pageRows) * rowHeight;
   auto card = makeUniqueNoThrow<CalmBookCardActivity>(renderer, mappedInput, row.path, row.title, row.detail,
-                                                      row.progress, rowTop, rowTop + calm::ROW_HEIGHT);
+                                                      row.progress, rowTop, rowTop + rowHeight);
   if (!card) {
     LOG_ERR("CALM", "Cannot allocate book card");
     return;
@@ -371,6 +481,7 @@ void CalmLibraryActivity::openBookCard() {
 void CalmLibraryActivity::loop() {
   using Button = MappedInputManager::Button;
 
+
   // Confirm: release opens, a long hold opens the book card instead.
   if (ignoreConfirmRelease) {
     if (!mappedInput.isPressed(Button::Confirm)) ignoreConfirmRelease = false;
@@ -401,8 +512,15 @@ void CalmLibraryActivity::loop() {
   }
 
   if (mappedInput.wasReleased(Button::Back)) {
-    // Library is home: Back returns to the top of the list.
-    if (selection != 0 && bookCount > 0) moveSelection(0);
+    // Library is home, so Back toggles between the list and the header (sorts
+    // and Settings), returning to the same book.
+    if (bookCount == 0) return;
+    if (selection >= 0) {
+      lastListSelection = selection;
+      moveSelection(-1);
+    } else {
+      moveSelection(std::clamp(lastListSelection, 0, bookCount - 1));
+    }
     return;
   }
 
@@ -502,31 +620,63 @@ void CalmLibraryActivity::drawHeader() const {
   renderer.fillRect(left, top + calm::HEADER_HEIGHT - 1, width, 1);
 }
 
+void CalmLibraryActivity::drawCover(const Row& row, const int x, const int y, const bool selected) const {
+  // Bitmaps only draw their ink, so give the cover white paper first (it may
+  // sit on the black selection pill).
+  renderer.fillRect(x, y, calm::COVER_WIDTH, calm::COVER_HEIGHT, false);
+  bool drawn = false;
+  if (row.cover == Cover::Ready) {
+    FsFile file;
+    if (Storage.openFileForRead("CALM", row.coverPath, file)) {
+      Bitmap bitmap(file);
+      if (bitmap.parseHeaders() == BmpReaderError::Ok)
+        drawn = renderer.drawBitmap(bitmap, x, y, calm::COVER_WIDTH, calm::COVER_HEIGHT);
+      file.close();
+    }
+  }
+  if (!drawn) {
+    // No cover (yet): a quiet blank book, so every row lines up.
+    renderer.fillRect(x + 6, y + 10, calm::COVER_WIDTH - 12, 2, true);
+    renderer.fillRect(x + 6, y + 16, calm::COVER_WIDTH - 18, 2, true);
+  }
+  // A 1 px frame keeps light covers from melting into the page (or the pill).
+  renderer.drawRect(x, y, calm::COVER_WIDTH, calm::COVER_HEIGHT, true);
+  if (selected) renderer.drawRect(x - 1, y - 1, calm::COVER_WIDTH + 2, calm::COVER_HEIGHT + 2, false);
+}
+
 void CalmLibraryActivity::drawRow(const int slot, const Row& row, const bool selected) const {
-  const int y = top + calm::HEADER_HEIGHT + slot * calm::ROW_HEIGHT;
+  const int y = top + calm::HEADER_HEIGHT + slot * rowHeight;
   const int x = left + calm::SIDE_MARGIN;
   const int innerWidth = width - 2 * calm::SIDE_MARGIN;
   // Selected: a rounded pill inset from the screen edge, 2 px off each rule.
-  if (selected) calm::fillPill(renderer, left + calm::PILL_INSET, y + 2, width - 2 * calm::PILL_INSET, calm::ROW_HEIGHT - 4);
+  if (selected) calm::fillPill(renderer, left + calm::PILL_INSET, y + 2, width - 2 * calm::PILL_INSET, rowHeight - 4);
 
-  const int titleY = y + calm::ROW_PADDING_TOP;
-  const int detailY = titleY + renderer.getLineHeight(UI_12_FONT_ID);
-  int titleWidth = innerWidth;
-  if (!row.progress.empty()) {
-    const int progressWidth = renderer.getTextWidth(UI_10_FONT_ID, row.progress.c_str(), EpdFontFamily::BOLD);
-    // Right-aligned and vertically centered on the row, like Calm UI.
-    const int progressY = y + (calm::ROW_HEIGHT - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
-    renderer.drawText(UI_10_FONT_ID, x + innerWidth - progressWidth, progressY, row.progress.c_str(), !selected,
-                      EpdFontFamily::BOLD);
-    titleWidth -= progressWidth + calm::CHIP_GAP;
+  const int coverY = y + (rowHeight - calm::COVER_HEIGHT) / 2;
+  drawCover(row, x, coverY, selected);
+
+  // Title, author/series and progress, centered as a block beside the cover.
+  const int textX = x + calm::COVER_WIDTH + calm::COVER_GAP;
+  const int textWidth = innerWidth - calm::COVER_WIDTH - calm::COVER_GAP - 4;
+  const int titleLine = renderer.getLineHeight(UI_12_FONT_ID);
+  const int detailLine = renderer.getLineHeight(UI_10_FONT_ID);
+  const int smallLine = renderer.getLineHeight(SMALL_FONT_ID);
+  const bool hasDetail = !row.detail.empty();
+  const bool hasProgress = !row.progress.empty();
+  const int blockHeight = titleLine + (hasDetail ? detailLine : 0) + (hasProgress ? smallLine + 2 : 0);
+  int textY = y + (rowHeight - blockHeight) / 2;
+
+  const std::string title = renderer.truncatedText(UI_12_FONT_ID, row.title.c_str(), textWidth, EpdFontFamily::BOLD);
+  renderer.drawText(UI_12_FONT_ID, textX, textY, title.c_str(), !selected, EpdFontFamily::BOLD);
+  textY += titleLine;
+  if (hasDetail) {
+    const std::string detail = renderer.truncatedText(UI_10_FONT_ID, row.detail.c_str(), textWidth);
+    renderer.drawText(UI_10_FONT_ID, textX, textY, detail.c_str(), !selected);
+    textY += detailLine;
   }
-  const std::string title = renderer.truncatedText(UI_12_FONT_ID, row.title.c_str(), titleWidth, EpdFontFamily::BOLD);
-  renderer.drawText(UI_12_FONT_ID, x, titleY, title.c_str(), !selected, EpdFontFamily::BOLD);
-  if (!row.detail.empty()) {
-    const std::string detail = renderer.truncatedText(UI_10_FONT_ID, row.detail.c_str(), titleWidth);
-    renderer.drawText(UI_10_FONT_ID, x, detailY, detail.c_str(), !selected);
-  }
-  renderer.fillRect(x, y + calm::ROW_HEIGHT - 1, innerWidth, 1);
+  if (hasProgress) renderer.drawText(SMALL_FONT_ID, textX, textY + 2, row.progress.c_str(), !selected, EpdFontFamily::BOLD);
+
+  // Hairline between rows, starting under the text so covers stand free.
+  if (!selected) renderer.fillRect(textX, y + rowHeight - 1, x + innerWidth - textX, 1);
 }
 
 void CalmLibraryActivity::render(RenderLock&&) {

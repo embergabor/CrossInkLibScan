@@ -12,14 +12,14 @@ void applySettingsPolicy(CrossPointSettings& settings) {
   // to Bitter in main.cpp. Store the family that is actually drawn.
   if (settings.fontFamily == CrossPointSettings::LEXENDDECA) settings.fontFamily = CrossPointSettings::BITTER;
 
-  // Reader chrome: the page and its number, nothing else.
+  // Reader chrome: none. Every pixel of the X4's page goes to text; position
+  // and battery live in the reading sheet.
   ReaderStatusBarConfig top;
   top.progressBar = CrossPointSettings::HIDE_PROGRESS;
   settings.topReaderStatusBar = top;
 
   ReaderStatusBarConfig bottom;
   bottom.progressBar = CrossPointSettings::HIDE_PROGRESS;
-  bottom.slots[ReaderStatusBarConfig::CENTER] = ReaderStatusBarItem::ChapterPageCount;
   settings.bottomReaderStatusBar = bottom;
 
   // Upstream's 5 px reading margins are cramped at 220 ppi. A settings file

@@ -189,6 +189,9 @@ class EpubReaderActivity final : public Activity {
   uint32_t globalStatsResetRevisionAtPanelOpen = 0;
   uint32_t ttfRenderGenerationAtPanelOpen = 0;
   bool pendingTtfRenderRelayout = false;
+  // Calm UI: the reading sheet applied a change and asked to come back on this
+  // row once the relaid-out page is on screen (-1 = no reopen pending).
+  int calmSheetReopenRow = -1;
   void relayoutAfterTtfRenderChange();
   // Signals that the next render should reposition within the newly loaded section
   // based on a cross-book percentage jump.

@@ -13,14 +13,18 @@
 
 // Calm UI home screen: every book on the card as one quiet list.
 //
-// Layout (portrait, 480x800 on X4): a 44 px header with "Library", the sort
-// and Settings, then 64 px rows of title over author/series/progress. The
-// selected row is drawn inverted, because without touch the cursor has to be
-// unmistakable.
+// Layout (portrait, 480x800 on X4): a header with "Library", the sort and
+// Settings, then rows of a small cover beside title, author/series and
+// progress. The selected row is a filled pill, because without touch the
+// cursor has to be unmistakable.
 //
-// Buttons: Up/Down move through books (hold to page); moving up past the first
-// book focuses the header, where Left/Right pick Sort or Settings and Confirm
-// activates it. In the list Left/Right page, Confirm opens the book and a long
+// Covers come from the EPUB's own cover image, scaled once into the book's
+// cache folder. All missing covers are made in one pass with a progress
+// screen when the Library opens after a scan; after that they are only read.
+//
+// Buttons: Up/Down move through books (hold to page). Back (or Up past the
+// first book) focuses the header, where Left/Right pick Sort or Settings and
+// Confirm activates it; Back again returns to the book you were on. In the list Left/Right page, Confirm opens the book and a long
 // Confirm opens its card (Continue reading, Mark finished, Delete).
 //
 // Data comes from upstream's on-SD Library index (lib/LibraryIndex); only the
@@ -41,11 +45,15 @@ class CalmLibraryActivity final : public Activity {
   static constexpr int MAX_PAGE_ROWS = 16;
   static constexpr unsigned long LONG_PRESS_MS = 600;
 
+  enum class Cover : uint8_t { None, Ready };
+
   struct Row {
     std::string title;
     std::string detail;    // author, then series and its number
-    std::string progress;  // "42%", "Finished", or empty
+    std::string progress;  // "42%", "Finished", or empty for unread books
     std::string path;
+    std::string coverPath;  // cached thumbnail BMP (EPUB only)
+    Cover cover = Cover::None;
   };
 
   // Header focus stops: the four sort segments, then the Settings cog.
@@ -64,8 +72,10 @@ class CalmLibraryActivity final : public Activity {
 
   int bookCount = 0;
   int selection = 0;  // -1 = header
+  int lastListSelection = 0;  // where Back from the header returns
   int headerFocus = 0;
   int pageRows = 1;
+  int rowHeight = 72;  // calm::ROW_HEIGHT stretched to fill the list area
   int loadedPage = -1;
   int pageRowCount = 0;
   std::array<Row, MAX_PAGE_ROWS> rows;
@@ -93,11 +103,14 @@ class CalmLibraryActivity final : public Activity {
   void openSelected();
   void openBookCard();
   void reload();
+  void prepareCovers();
+  void drawCoverProgress(int done, int total) const;
 
   static const char* sortLabel(Sort sort);
   void drawScanScreen(const char* message) const;
   void drawHeader() const;
   void drawRow(int slot, const Row& row, bool selected) const;
+  void drawCover(const Row& row, int x, int y, bool selected) const;
 
   static bool scanCancelRequested(void* context);
   static void onScanProgress(void* context, const library::BuildProgress& progress);

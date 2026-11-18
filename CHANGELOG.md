@@ -11,6 +11,15 @@
 
 - Calm UI screens use rounded buttons, pills, steppers and a rounded-top reading sheet, with a focus ring for the button cursor.
 - Calm UI reading defaults: 1.20 line spacing, Normal margins and hyphenation on.
+- Calm UI reader shows only the text: no page number, so the page gets the full screen; position and battery are in the reading sheet.
+- Calm UI reading sheet opens with the book's title, progress and battery as its own header, and drops the Library button (Back already leaves the book).
+- Calm UI Library rows show a small cover beside the title and spread out to fill the screen; unread books no longer say "New". Covers are made once, with a progress screen, the first time the Library opens after a scan.
+- Calm UI reading sheet: OK applies a change and keeps the sheet open on the same row so options can be compared; Back closes it. Long titles wrap, and the header shows the battery percentage.
+- Calm UI Library: Back moves between the book list and the header (sort and Settings).
+
+### Fixed
+
+- Calm UI: the reading sheet's font settings had no effect in books that had saved per-book reader settings; calm builds now use one global look for every book.
 
 ## [v1.6.1] - 2026-10-03
 

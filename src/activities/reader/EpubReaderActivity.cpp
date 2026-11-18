@@ -2084,6 +2084,18 @@ void EpubReaderActivity::loadBookReaderSettings() {
     return;
   }
 
+#if CROSSINK_CALM_UI
+  // Calm UI keeps one reading look for every book and has no per-book
+  // controls, so a book's saved overrides (font, size, spacing, margins...)
+  // would silently pin it and make the reading sheet do nothing. Safe Mode and
+  // render-mode fallbacks are kept: they exist so large books can be laid out.
+  if (initialBookReaderSettings.hasCustomReaderSettings) {
+    LOG_INF("ERS", "Calm UI: ignoring per-book reader settings (mask=0x%08x)",
+            static_cast<unsigned>(initialBookReaderSettings.readerSettingsOverrideMask));
+    initialBookReaderSettings.hasCustomReaderSettings = false;
+    initialBookReaderSettings.readerSettingsOverrideMask = 0;
+  }
+#endif
   const auto& data = initialBookReaderSettings;
   bookHasCustomReaderSettings = data.hasCustomReaderSettings;
   bookHasAutoPageTurnInterval = data.hasAutoPageTurnInterval;
@@ -2588,6 +2600,8 @@ void EpubReaderActivity::openReaderMenu() {
   calmContext.saveGlobal = saveGlobalSettingsForBookReader;
   calmContext.endGlobalEdit = endGlobalSettingsEditForBookReader;
   calmContext.readerContext = this;
+  calmContext.initialRow = calmSheetReopenRow;
+  calmSheetReopenRow = -1;
   std::unique_ptr<Activity> menuActivity =
       makeUniqueNoThrow<CalmSheetActivity>(renderer, mappedInput, std::move(calmContext));
 #else
@@ -2688,6 +2702,14 @@ void EpubReaderActivity::openReaderMenu() {
       section.reset();  // Force re-layout with changed reader settings
     }
     resumeReadingPaceTimer("reader_menu_return");
+#if CROSSINK_CALM_UI
+    if (menu->reopenDrawer && menu->action < 0) {
+      // Show the new layout first; loop() reopens the sheet once it is drawn.
+      calmSheetReopenRow = menu->drawerValue;
+      requestUpdate();
+      return;
+    }
+#endif
     if (!result.isCancelled) {
       if (menu->action == static_cast<int>(EpubReaderMenuAction::GO_TO_PERCENT) && menu->drawerValue >= 0) {
         // The touch drawer's Percent pane reports centipercent (see EpubReaderDrawerActivity::percent).
@@ -2820,6 +2842,14 @@ bool EpubReaderActivity::transientFeedbackDismissed(const unsigned long showTime
 
 void EpubReaderActivity::loop() {
   syncStatsTrackingState();
+#if CROSSINK_CALM_UI
+  // The section exists once render() has started the relayout; openReaderMenu()
+  // takes the render lock, so the sheet opens after that page is displayed.
+  if (calmSheetReopenRow >= 0 && section) {
+    openReaderMenu();
+    return;
+  }
+#endif
   if (pendingTtfRenderRelayout && epub) {
     relayoutAfterTtfRenderChange();
     requestUpdate();

@@ -8,13 +8,16 @@
 
 // The calm reading sheet: one bottom-half overlay replacing the reader menu.
 //
-//   Library  ·  Contents  ·  Go to %          (row 0, Left/Right pick, Confirm runs)
-//   <title>                        page, %, battery
+//   <title, wrapped>                          battery %   (header)
+//   [ Contents ]  [ page / pages · book % ]   (row 0, Left/Right pick, Confirm runs)
 //   Size / Font / Antialiasing / Line spacing / Alignment / Margins / Full refresh
 //                                             (Left/Right change the value)
 //
-// Up/Down move between rows; Back (or Confirm on a setting row) closes the
-// sheet. Settings are global: they apply to every book, and the reader lays
+// Up/Down move between rows. On a setting row, Confirm applies the changes:
+// the sheet closes, the reader lays the page out again, and the sheet reopens
+// on the same row, so options can be tried one after another. Back closes the
+// sheet (applying anything not yet applied). There is no Library button: Back
+// in the reader already leaves the book. Settings are global: they apply to every book, and the reader lays
 // the page out again once the sheet closes.
 //
 // Results use the stock drawer's MenuResult so EpubReaderActivity's existing
@@ -33,6 +36,7 @@ class CalmSheetActivity final : public Activity {
     Callback saveGlobal = nullptr;
     Callback endGlobalEdit = nullptr;
     void* readerContext = nullptr;
+    int initialRow = -1;  // row to focus when reopening after Confirm applied changes
   };
 
   CalmSheetActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, Context context);
@@ -54,7 +58,7 @@ class CalmSheetActivity final : public Activity {
     FullRefresh,
     Count
   };
-  enum class ActionChip : uint8_t { Library = 0, Contents, GoToPercent, Count };
+  enum class ActionChip : uint8_t { Contents = 0, GoToPercent, Count };
 
   struct FontChoice {
     std::string label;
@@ -73,7 +77,7 @@ class CalmSheetActivity final : public Activity {
   void step(Row which, int delta);
   std::string valueLabel(Row which) const;
   const char* rowLabel(Row which) const;
-  void closeWithAction(int action);
+  void closeWithAction(int action, bool reopen = false);
   void closeSheet();
 
   int currentFontIndex() const;
