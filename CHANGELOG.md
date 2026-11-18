@@ -1,8 +1,10 @@
 ## [Unreleased]
 
+## [v1.6.1-calm.1] - 2026-11-18
+
 ### Added
 
-- Calm UI build (`calm` env) for the original Xteink X4: the Library is the home screen, the reader shows only the page number, and the firmware is English-only with English hyphenation and Bitter as the only built-in reading font, freeing about 1.5 MB of flash.
+- Calm UI build (`calm` env) for the original Xteink X4: the Library is the home screen, the reader shows only the text, and the firmware is English-only with English hyphenation and Bitter as the only built-in reading font, freeing about 1.5 MB of flash.
 - Calm UI screens: a quiet Library list with Recent, Title, Author and Series sorts, a book card (hold Confirm) with Continue reading, Mark as finished and Delete, and a reading sheet that replaces the EPUB reader menu with size, font, line spacing, alignment, margins and full refresh.
 - Calm UI Settings (cog in the Library): File transfer, Calibre wireless, Refresh library, Sleep screen, Time to sleep, and More settings for the full CrossInk list.
 - Text antialiasing toggle in the calm reading sheet, under Font.
@@ -16,6 +18,7 @@
 - Calm UI Library rows show a small cover beside the title and spread out to fill the screen; unread books no longer say "New". Covers are made once, with a progress screen, the first time the Library opens after a scan.
 - Calm UI reading sheet: OK applies a change and keeps the sheet open on the same row so options can be compared; Back closes it. Long titles wrap, and the header shows the battery percentage.
 - Calm UI Library: Back moves between the book list and the header (sort and Settings).
+- Calm UI builds report their own version, such as 1.6.1-calm.1, instead of the upstream one.
 
 ### Fixed
 

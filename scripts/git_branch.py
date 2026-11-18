@@ -181,6 +181,17 @@ def inject_version(env):
             print(f'CrossInk build version: {version_string}')
         scoped.append(('CROSSINK_VERSION', f'\\"{version_string}\\"'))
 
+    elif pioenv == 'calm':
+        # Calm UI builds: the release version verbatim (e.g. 1.6.1-calm.1),
+        # otherwise a dev string tied to the commit.
+        if os.environ.get('CROSSINK_RELEASE_VERSION'):
+            version_string = get_production_version(project_dir)
+        else:
+            version_string = (f'{get_crossink_version(project_dir)}-calm-dev+'
+                              f'{get_git_short_hash(project_dir)}')
+        print(f'CrossInk calm build version: {version_string}')
+        scoped.append(('CROSSINK_VERSION', f'\\"{version_string}\\"'))
+
     elif pioenv == 'debug':
         branch = get_git_branch(project_dir)
         short_hash = get_git_short_hash(project_dir)
