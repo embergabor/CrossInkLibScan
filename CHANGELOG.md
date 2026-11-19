@@ -1,5 +1,23 @@
 ## [Unreleased]
 
+### Added
+
+- Calm UI Library: a cover grid (3 x 3 larger covers with title and progress), switched from the list/grid button in the header. Its covers are made once, the first time the grid is shown.
+- Calm UI Contents and Go to: the table of contents as a flat calm list (nested entries indented, the current chapter marked), and a Go to sheet with a position bar (Left/Right by 1, Up/Down by 10). Books with page numbers go to a page; others to a percent.
+- Calm UI reading sheet: a Sync button when KOReader sync is logged in, and the book's page number on the position button for books that carry page numbers.
+- Calm UI Settings: Progress sync (KOReader sync login) and Update from SD card.
+- Calm UI opening card: the book's title and author while a book opens and its first chapter is laid out, in place of the Loading and Indexing popups.
+
+### Changed
+
+- Calm UI reading sheet: margins are two rows, Side margins and Top & bottom.
+- Calm UI: hyphenation is off.
+- Calm UI: upstream screens still reached from Settings (More settings, File transfer, Calibre, sync login, SD-card update) and all popups use the calm look: 12 px margins, 8 px rounded selections, a 1 px header rule, and white popup cards.
+
+### Fixed
+
+- Calm UI reading sheet: the position button could jump to the start of the book instead of opening Go to.
+
 ## [v1.6.1-calm.1] - 2026-11-18
 
 ### Added

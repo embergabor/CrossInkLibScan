@@ -25,12 +25,10 @@ constexpr uint8_t REFRESHES[] = {CrossPointSettings::REFRESH_1,  CrossPointSetti
                                  CrossPointSettings::REFRESH_10, CrossPointSettings::REFRESH_15,
                                  CrossPointSettings::REFRESH_30, CrossPointSettings::REFRESH_NEVER};
 
-// Narrow / Normal / Wide reading margins, in pixels (horizontal, vertical).
-struct MarginPreset {
-  uint8_t horizontal;
-  uint8_t vertical;
-};
-constexpr MarginPreset MARGINS[] = {{10, 8}, {20, 12}, {32, 20}};
+// Narrow / Normal / Wide reading margins, in pixels.
+constexpr uint8_t SIDE_MARGINS[] = {10, 20, 32};
+constexpr uint8_t TOP_BOTTOM_MARGINS[] = {8, 12, 20};
+constexpr StrId MARGIN_NAMES[] = {StrId::STR_CALM_NARROW, StrId::STR_CALM_NORMAL, StrId::STR_WIDE};
 
 template <typename T, size_t N>
 int nearestIndex(const T (&values)[N], const int current) {
@@ -84,14 +82,12 @@ int CalmSheetActivity::currentFontIndex() const {
   return 0;
 }
 
-int CalmSheetActivity::marginPreset() const {
-  int best = 0;
-  for (int i = 1; i < 3; i++) {
-    if (std::abs(MARGINS[i].horizontal - SETTINGS.screenMarginHorizontal) <
-        std::abs(MARGINS[best].horizontal - SETTINGS.screenMarginHorizontal))
-      best = i;
-  }
-  return best;
+int CalmSheetActivity::sideMarginPreset() const {
+  return nearestIndex(SIDE_MARGINS, SETTINGS.screenMarginHorizontal);
+}
+
+int CalmSheetActivity::topBottomMarginPreset() const {
+  return nearestIndex(TOP_BOTTOM_MARGINS, SETTINGS.screenMarginVertical);
 }
 
 const char* CalmSheetActivity::rowLabel(const Row which) const {
@@ -106,8 +102,10 @@ const char* CalmSheetActivity::rowLabel(const Row which) const {
       return tr(STR_CALM_LINE_SPACING);
     case Row::Alignment:
       return tr(STR_CALM_ALIGNMENT);
-    case Row::Margins:
-      return tr(STR_CALM_MARGINS);
+    case Row::SideMargins:
+      return tr(STR_CALM_SIDE_MARGINS);
+    case Row::TopBottomMargins:
+      return tr(STR_CALM_TOP_BOTTOM_MARGINS);
     case Row::FullRefresh:
       return tr(STR_CALM_FULL_REFRESH);
     default:
@@ -136,10 +134,10 @@ std::string CalmSheetActivity::valueLabel(const Row which) const {
         default:
           return tr(STR_CALM_JUSTIFIED);
       }
-    case Row::Margins: {
-      static constexpr StrId names[] = {StrId::STR_CALM_NARROW, StrId::STR_CALM_NORMAL, StrId::STR_WIDE};
-      return I18N.get(names[marginPreset()]);
-    }
+    case Row::SideMargins:
+      return I18N.get(MARGIN_NAMES[sideMarginPreset()]);
+    case Row::TopBottomMargins:
+      return I18N.get(MARGIN_NAMES[topBottomMarginPreset()]);
     case Row::FullRefresh: {
       static constexpr StrId pages[] = {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10,
                                         StrId::STR_PAGES_15, StrId::STR_PAGES_30};
@@ -187,10 +185,18 @@ void CalmSheetActivity::step(const Row which, const int delta) {
       SETTINGS.paragraphAlignment = ALIGNMENTS[wrapIndex(index, delta, std::size(ALIGNMENTS))];
       break;
     }
-    case Row::Margins: {
-      const int next = std::clamp(marginPreset() + delta, 0, 2);
-      SETTINGS.screenMarginHorizontal = MARGINS[next].horizontal;
-      SETTINGS.screenMarginVertical = MARGINS[next].vertical;
+    case Row::SideMargins: {
+      const int index = sideMarginPreset();
+      const int next = std::clamp(index + delta, 0, 2);
+      if (next == index && SIDE_MARGINS[index] == SETTINGS.screenMarginHorizontal) return;
+      SETTINGS.screenMarginHorizontal = SIDE_MARGINS[next];
+      break;
+    }
+    case Row::TopBottomMargins: {
+      const int index = topBottomMarginPreset();
+      const int next = std::clamp(index + delta, 0, 2);
+      if (next == index && TOP_BOTTOM_MARGINS[index] == SETTINGS.screenMarginVertical) return;
+      SETTINGS.screenMarginVertical = TOP_BOTTOM_MARGINS[next];
       break;
     }
     case Row::FullRefresh: {
@@ -217,7 +223,9 @@ void CalmSheetActivity::closeWithAction(const int action, const bool reopen) {
   menu.changeMask = changed ? ReaderSettingsChangeMask::Relayout : ReaderSettingsChangeMask::None;
   // The reader reopens the sheet on this row once the new layout is on screen.
   menu.reopenDrawer = reopen;
-  menu.drawerValue = static_cast<int16_t>(row);
+  // drawerValue doubles as a percent target for GO_TO_PERCENT, so it carries
+  // the row only when reopening.
+  menu.drawerValue = reopen ? static_cast<int16_t>(row) : -1;
   ActivityResult result;
   result.data = menu;
   result.isCancelled = action < 0;
@@ -248,8 +256,12 @@ void CalmSheetActivity::loop() {
       case ActionChip::Contents:
         closeWithAction(static_cast<int>(EpubReaderMenuAction::SELECT_CHAPTER));
         return;
+      case ActionChip::Sync:
+        closeWithAction(static_cast<int>(EpubReaderMenuAction::SYNC));
+        return;
       default:
-        closeWithAction(static_cast<int>(EpubReaderMenuAction::GO_TO_PERCENT));
+        closeWithAction(static_cast<int>(ctx.stablePageCount > 0 ? EpubReaderMenuAction::GO_TO_STABLE_PAGE
+                                                                  : EpubReaderMenuAction::GO_TO_PERCENT));
         return;
     }
   }
@@ -263,7 +275,7 @@ void CalmSheetActivity::loop() {
   } else if (mappedInput.wasReleased(Button::Left) || mappedInput.wasReleased(Button::Right)) {
     const int delta = mappedInput.wasReleased(Button::Right) ? 1 : -1;
     if (current == Row::Actions) {
-      chip = wrapIndex(chip, delta, static_cast<int>(ActionChip::Count));
+      chip = wrapIndex(chip, delta, chipCount());
       requestUpdate();
     } else {
       step(current, delta);
@@ -311,21 +323,33 @@ void CalmSheetActivity::render(RenderLock&&) {
                     powerManager.getBatteryPercentage());
   renderer.fillRect(x, sheetY + headerHeight, innerWidth, 1);
 
-  // Action row: two equal buttons, Contents and the position (which opens Go to %).
+  // Action row: Contents, the position (which opens Go to), and Sync when
+  // logged in. Books with page numbers show the book's page, others the
+  // chapter's page and the book's percent.
   const bool actionsFocused = row == static_cast<int>(Row::Actions);
   char pageLabel[32];
-  snprintf(pageLabel, sizeof(pageLabel), "%d / %d \xC2\xB7 %d%%", ctx.chapterPage, ctx.chapterPageCount,
-           static_cast<int>(ctx.bookProgress + 0.5f));
-  const char* buttonText[] = {tr(STR_CALM_CONTENTS), pageLabel};
+  if (ctx.stablePageCount > 0) {
+    snprintf(pageLabel, sizeof(pageLabel), tr(STR_CALM_PAGE_SHORT), static_cast<unsigned>(ctx.stablePage),
+             static_cast<unsigned>(ctx.stablePageCount));
+  } else {
+    snprintf(pageLabel, sizeof(pageLabel), "%d / %d \xC2\xB7 %d%%", ctx.chapterPage, ctx.chapterPageCount,
+             static_cast<int>(ctx.bookProgress + 0.5f));
+  }
+  const char* buttonText[] = {tr(STR_CALM_CONTENTS), pageLabel, tr(STR_CALM_SYNC)};
   constexpr int buttonGap = 10;
-  const int buttonWidth = (innerWidth - buttonGap) / 2;
+  const int count = chipCount();
+  // The position gets the most room; Contents and Sync share the rest.
+  const int positionWidth = count == 3 ? (innerWidth - 2 * buttonGap) * 2 / 5 : (innerWidth - buttonGap) / 2;
+  const int sideWidth = count == 3 ? (innerWidth - 2 * buttonGap - positionWidth) / 2 : positionWidth;
   const int buttonY = sheetY + headerHeight + (actionHeight - calm::CONTROL_HEIGHT - 4) / 2 + 2;
-  for (int i = 0; i < static_cast<int>(ActionChip::Count); i++) {
+  int bx = x;
+  for (int i = 0; i < count; i++) {
     const bool focused = actionsFocused && chip == i;
-    const int bx = x + i * (buttonWidth + buttonGap);
+    const int buttonWidth = i == static_cast<int>(ActionChip::Position) ? positionWidth : sideWidth;
     calm::drawButton(renderer, bx, buttonY, buttonWidth, calm::CONTROL_HEIGHT + 4, focused);
     calm::drawCenteredLabel(renderer, UI_10_FONT_ID, bx, buttonY, buttonWidth, calm::CONTROL_HEIGHT + 4,
                             buttonText[i], focused, EpdFontFamily::BOLD);
+    bx += buttonWidth + buttonGap;
   }
 
   // Setting rows: label on the left, a rounded ‹ value › stepper on the right.

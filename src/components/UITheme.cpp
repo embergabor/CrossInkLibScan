@@ -24,6 +24,9 @@
 #include "components/themes/lyra/LyraTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "components/themes/roundedraff/RoundedRaffTheme.h"
+#if CROSSINK_CALM_UI
+#include "components/themes/calm/CalmTheme.h"
+#endif
 
 namespace {
 constexpr char kWidthPlaceholder[] = "[WIDTH]";
@@ -85,6 +88,15 @@ bool UITheme::hasCoverGridHome() {
 }
 
 void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
+#if CROSSINK_CALM_UI
+  // Calm builds have one look; the stored theme stays RoundedRaff so code
+  // that checks for it (section headers) follows the same structure.
+  (void)type;
+  currentTheme = std::make_unique<CalmTheme>();
+  currentMetrics = &CalmThemeMetrics::values;
+  metricsValid = false;
+  return;
+#endif
   if (type == CrossPointSettings::UI_THEME::COVER_GRID && !supportsCoverGrid()) {
     type = CrossPointSettings::UI_THEME::LYRA;
   }

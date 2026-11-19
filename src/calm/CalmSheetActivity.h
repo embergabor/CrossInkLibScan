@@ -9,8 +9,10 @@
 // The calm reading sheet: one bottom-half overlay replacing the reader menu.
 //
 //   <title, wrapped>                          battery %   (header)
-//   [ Contents ]  [ page / pages · book % ]   (row 0, Left/Right pick, Confirm runs)
-//   Size / Font / Antialiasing / Line spacing / Alignment / Margins / Full refresh
+//   [ Contents ] [ position ] [ Sync ]        (row 0, Left/Right pick, Confirm runs;
+//                                             Sync only when logged in)
+//   Size / Font / Antialiasing / Line spacing / Alignment / Side margins /
+//   Top & bottom margins / Full refresh
 //                                             (Left/Right change the value)
 //
 // Up/Down move between rows. On a setting row, Confirm applies the changes:
@@ -31,6 +33,10 @@ class CalmSheetActivity final : public Activity {
     int chapterPage = 0;
     int chapterPageCount = 0;
     float bookProgress = 0.0f;
+    // Whole-book page numbers, when the book carries them (0 otherwise).
+    uint32_t stablePage = 0;
+    uint32_t stablePageCount = 0;
+    bool canSync = false;  // KOReader sync is logged in
     // Reader hooks that make edits global rather than per-book overrides.
     Callback beginGlobalEdit = nullptr;
     Callback saveGlobal = nullptr;
@@ -54,11 +60,13 @@ class CalmSheetActivity final : public Activity {
     AntiAliasing,
     LineSpacing,
     Alignment,
-    Margins,
+    SideMargins,
+    TopBottomMargins,
     FullRefresh,
     Count
   };
-  enum class ActionChip : uint8_t { Contents = 0, GoToPercent, Count };
+  enum class ActionChip : uint8_t { Contents = 0, Position, Sync };
+  int chipCount() const { return ctx.canSync ? 3 : 2; }
 
   struct FontChoice {
     std::string label;
@@ -81,5 +89,6 @@ class CalmSheetActivity final : public Activity {
   void closeSheet();
 
   int currentFontIndex() const;
-  int marginPreset() const;
+  int sideMarginPreset() const;
+  int topBottomMarginPreset() const;
 };

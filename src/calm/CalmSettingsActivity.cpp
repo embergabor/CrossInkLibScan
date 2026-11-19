@@ -12,6 +12,8 @@
 
 #include "CalmDraw.h"
 #include "CalmLayout.h"
+#include "activities/settings/KOReaderSettingsActivity.h"
+#include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "activities/settings/SettingsActivity.h"
 #include "fontIds.h"
 
@@ -77,8 +79,12 @@ const char* CalmSettingsActivity::rowLabel(const Row row) const {
       return tr(STR_CALM_FILE_TRANSFER);
     case Row::Calibre:
       return tr(STR_CALM_CALIBRE);
+    case Row::ProgressSync:
+      return tr(STR_CALM_PROGRESS_SYNC);
     case Row::RefreshLibrary:
       return tr(STR_CALM_REFRESH_LIBRARY);
+    case Row::SdUpdate:
+      return tr(STR_CALM_SD_UPDATE);
     case Row::SleepScreen:
       return tr(STR_CALM_SLEEP_SCREEN);
     case Row::SleepTimeout:
@@ -137,6 +143,25 @@ void CalmSettingsActivity::activate(const Row row) {
       saveIfChanged();
       activityManager.goToCalibreWireless();
       return;
+    case Row::ProgressSync:
+    case Row::SdUpdate: {
+      saveIfChanged();
+      // Upstream's screens: KOReader sync login, and the SD-card firmware picker.
+      std::unique_ptr<Activity> screen;
+      if (row == Row::ProgressSync)
+        screen = makeUniqueNoThrow<KOReaderSettingsActivity>(renderer, mappedInput);
+      else
+        screen = makeUniqueNoThrow<SdFirmwareUpdateActivity>(renderer, mappedInput);
+      if (!screen) {
+        LOG_ERR("CALM", "Cannot allocate settings screen %d", static_cast<int>(row));
+        return;
+      }
+      startActivityForResult(std::move(screen), [this](const ActivityResult&) {
+        SETTINGS.saveToFile();
+        requestUpdate();
+      });
+      return;
+    }
     case Row::RefreshLibrary:
       saveIfChanged();
       // The Library rescans on entry once the index is marked stale.
@@ -216,7 +241,7 @@ void CalmSettingsActivity::render(RenderLock&&) {
       calm::drawSectionLabel(renderer, x, y + 4,
                              row == Row::FileTransfer ? tr(STR_CALM_SECTION_BOOKS) : tr(STR_CALM_SECTION_SLEEP));
       y += sectionLine + 8;
-    } else if (row == Row::More) {
+    } else if (row == Row::SdUpdate) {
       y += 14;
     }
     const std::string value = valueLabel(row);

@@ -639,6 +639,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t libraryShowXtc = 1;
   uint8_t libraryShowTxt = 1;
   uint8_t libraryShowMarkdown = 1;
+  // Calm UI Library: 0 = list, 1 = cover grid.
+  uint8_t calmLibraryGrid = 0;
   uint8_t libraryHideFinishedBooks = 0;
   // Hide file extensions in the file browser right-side value column (0 = show, 1 = hide)
   uint8_t hideFileExtension = 0;

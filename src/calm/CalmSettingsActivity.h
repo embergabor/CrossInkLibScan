@@ -8,9 +8,9 @@
 // Calm UI settings: the handful of things not on the reading sheet, as one
 // list in the Library's style.
 //
-//   File transfer, Calibre wireless, Refresh library   (Confirm runs)
+//   File transfer, Calibre wireless, Progress sync, Refresh library   (Confirm runs)
 //   Sleep screen, Time to sleep                        (Left/Right change)
-//   More settings                                      (upstream's full screen)
+//   Update from SD card, More settings                 (upstream's screens)
 //
 // Back returns to the Library.
 class CalmSettingsActivity final : public Activity {
@@ -26,9 +26,11 @@ class CalmSettingsActivity final : public Activity {
   enum class Row : uint8_t {
     FileTransfer = 0,
     Calibre,
+    ProgressSync,
     RefreshLibrary,
     SleepScreen,
     SleepTimeout,
+    SdUpdate,
     More,
     Count
   };

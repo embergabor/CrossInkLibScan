@@ -165,8 +165,12 @@ void CalmBookCardActivity::render(RenderLock&&) {
   const int cardHeight = pad + bodyHeight + pad + buttonHeight + pad;
 
   // Beside the selected row: below it in the top half, above it otherwise.
+  // Without an anchor (the cover grid) it is a centered modal.
   const int listTop = t + calm::HEADER_HEIGHT + 8;
-  int cardY = (anchorTop + anchorBottom) / 2 < (t + screenBottom) / 2 ? anchorBottom + 10 : anchorTop - 10 - cardHeight;
+  const bool anchored = anchorTop >= 0;
+  int cardY = !anchored ? (t + screenBottom - cardHeight) / 2
+              : (anchorTop + anchorBottom) / 2 < (t + screenBottom) / 2 ? anchorBottom + 10
+                                                                        : anchorTop - 10 - cardHeight;
   cardY = std::clamp(cardY, listTop, screenBottom - calm::FOOTER_HEIGHT - cardHeight);
 
   // Clear every Library row the card overlaps (whole rows, never half a line
@@ -178,7 +182,13 @@ void CalmBookCardActivity::render(RenderLock&&) {
                                    rowsTop + (below + calm::ROW_HEIGHT - 1) / calm::ROW_HEIGHT * calm::ROW_HEIGHT);
   // The card sits wholly below or above the selected row and both of those
   // edges are row boundaries, so this never erases the selected book.
-  if (clearBottom > clearTop) renderer.fillRect(l, clearTop, screenWidth, clearBottom - clearTop, false);
+  if (anchored && clearBottom > clearTop) {
+    renderer.fillRect(l, clearTop, screenWidth, clearBottom - clearTop, false);
+  } else if (!anchored) {
+    // A white band keeps the modal clear of the covers behind it.
+    renderer.fillRoundedRect(cardX - 6, cardY - 6, cardWidth + 12, cardHeight + 12, calm::SHEET_RADIUS + 6,
+                             Color::White);
+  }
   renderer.fillRoundedRect(cardX, cardY, cardWidth, cardHeight, calm::SHEET_RADIUS, Color::White);
   renderer.drawRoundedRect(cardX, cardY, cardWidth, cardHeight, calm::CARD_BORDER, calm::SHEET_RADIUS, true);
 

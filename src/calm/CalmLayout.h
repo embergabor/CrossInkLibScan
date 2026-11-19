@@ -12,6 +12,11 @@ constexpr int ROW_HEIGHT = 72;
 constexpr int COVER_WIDTH = 40;
 constexpr int COVER_HEIGHT = 60;
 constexpr int COVER_GAP = 12;  // between the cover and the text
+// Library grid: 3 x 3 covers per page.
+constexpr int GRID_COLUMNS = 3;
+constexpr int GRID_ROWS = 3;
+constexpr int GRID_COVER_WIDTH = 112;
+constexpr int GRID_COVER_HEIGHT = 168;
 constexpr int PILL_INSET = 6;  // selection pills sit this far in from the screen edge
 constexpr int CHIP_PADDING = 6;
 constexpr int CHIP_GAP = 10;

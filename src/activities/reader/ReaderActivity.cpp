@@ -16,6 +16,9 @@
 #include "activities/util/BmpViewerActivity.h"
 #include "activities/util/FullScreenMessageActivity.h"
 #include "components/UITheme.h"
+#if CROSSINK_CALM_UI
+#include "calm/CalmOpening.h"
+#endif
 
 bool ReaderActivity::isXtcFile(const std::string& path) { return FsHelpers::hasXtcExtension(path); }
 
@@ -67,7 +70,11 @@ ReaderActivity::EpubOpenResult ReaderActivity::loadEpub(const std::string& path)
   if (uncached) {
     // The popup replaces the restored Quick Resume frame, so the reader must clean it.
     allowFastInitialRefresh = false;
+#if CROSSINK_CALM_UI
+    calm::drawOpeningCard(renderer, tr(STR_CALM_PREPARING));
+#else
     GUI.drawPopup(renderer, tr(STR_INDEXING));
+#endif
   }
   // Keep one settings snapshot for both EPUB preparation and the reader handoff.
   result.readerSettings = EpubReaderActivity::readBookReaderSettings(*epub);
@@ -189,9 +196,14 @@ void ReaderActivity::onEnter() {
     return;
   }
 
+#if CROSSINK_CALM_UI
+  calm::beginOpening(initialBookPath);
+  if (shouldShowLoadingPopup(initialBookPath)) calm::drawOpeningCard(renderer, tr(STR_CALM_OPENING));
+#else
   if (shouldShowLoadingPopup(initialBookPath)) {
     GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   }
+#endif
 
   if (isImagePreviewFile(initialBookPath)) {
     onGoToBmpViewer(initialBookPath);

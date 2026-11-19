@@ -9,6 +9,7 @@
 
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
+#include "CalmLayout.h"
 #include "util/ButtonNavigator.h"
 
 // Calm UI home screen: every book on the card as one quiet list.
@@ -22,10 +23,15 @@
 // cache folder. All missing covers are made in one pass with a progress
 // screen when the Library opens after a scan; after that they are only read.
 //
+// The header's view control switches to a 3 x 3 grid of larger covers with
+// the title and progress under each.
+//
 // Buttons: Up/Down move through books (hold to page). Back (or Up past the
-// first book) focuses the header, where Left/Right pick Sort or Settings and
-// Confirm activates it; Back again returns to the book you were on. In the list Left/Right page, Confirm opens the book and a long
-// Confirm opens its card (Continue reading, Mark finished, Delete).
+// first book) focuses the header, where Left/Right pick Sort, View or
+// Settings and Confirm activates it; Back again returns to the book you were
+// on. In the list Left/Right page; in the grid they move between covers.
+// Confirm opens the book and a long Confirm opens its card (Continue
+// reading, Mark finished, Delete).
 //
 // Data comes from upstream's on-SD Library index (lib/LibraryIndex); only the
 // rows on screen are read, so RAM stays flat however large the card is.
@@ -56,9 +62,10 @@ class CalmLibraryActivity final : public Activity {
     Cover cover = Cover::None;
   };
 
-  // Header focus stops: the four sort segments, then the Settings cog.
-  static constexpr int HEADER_STOPS = static_cast<int>(Sort::Count) + 1;
-  static constexpr int HEADER_SETTINGS_STOP = static_cast<int>(Sort::Count);
+  // Header focus stops: the four sort segments, the list/grid control, then the Settings cog.
+  static constexpr int HEADER_VIEW_STOP = static_cast<int>(Sort::Count);
+  static constexpr int HEADER_SETTINGS_STOP = static_cast<int>(Sort::Count) + 1;
+  static constexpr int HEADER_STOPS = static_cast<int>(Sort::Count) + 2;
 
   library::LibraryIndexFile index;
   Sort sort = Sort::Recent;
@@ -76,6 +83,7 @@ class CalmLibraryActivity final : public Activity {
   int headerFocus = 0;
   int pageRows = 1;
   int rowHeight = 72;  // calm::ROW_HEIGHT stretched to fill the list area
+  bool grid = false;   // cover grid instead of the list
   int loadedPage = -1;
   int pageRowCount = 0;
   std::array<Row, MAX_PAGE_ROWS> rows;
@@ -111,6 +119,11 @@ class CalmLibraryActivity final : public Activity {
   void drawHeader() const;
   void drawRow(int slot, const Row& row, bool selected) const;
   void drawCover(const Row& row, int x, int y, bool selected) const;
+  void drawGridCell(int slot, const Row& row, bool selected) const;
+  void setGrid(bool on);
+  int coverWidth() const;
+  int coverHeight() const;
+  int columns() const { return grid ? calm::GRID_COLUMNS : 1; }
 
   static bool scanCancelRequested(void* context);
   static void onScanProgress(void* context, const library::BuildProgress& progress);

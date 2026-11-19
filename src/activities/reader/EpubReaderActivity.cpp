@@ -40,6 +40,9 @@
 #include "EpubReaderClippingListActivity.h"
 #include "EpubReaderDrawerActivity.h"
 #if CROSSINK_CALM_UI
+#include "calm/CalmContentsActivity.h"
+#include "calm/CalmGoToActivity.h"
+#include "calm/CalmOpening.h"
 #include "calm/CalmSheetActivity.h"
 #endif
 #include "EpubReaderFootnoteSelectActivity.h"
@@ -2588,14 +2591,15 @@ void EpubReaderActivity::openReaderMenu() {
   // Calm UI: one bottom sheet replaces the drawer. It reports a MenuResult, so
   // the handler below still does the relayout, chapter list and percent jump.
   (void)chapterPageCountEstimated;
-  (void)stableCurrentPage;
-  (void)stablePageCount;
   (void)isBookCompleted;
   CalmSheetActivity::Context calmContext;
   calmContext.title = epub->getTitle();
   calmContext.chapterPage = chapterPage;
   calmContext.chapterPageCount = chapterPageCount;
   calmContext.bookProgress = bookProgress;
+  calmContext.stablePage = stableCurrentPage;
+  calmContext.stablePageCount = stablePageCount;
+  calmContext.canSync = KOREADER_STORE.hasCredentials();
   calmContext.beginGlobalEdit = beginGlobalSettingsEditForBookReader;
   calmContext.saveGlobal = saveGlobalSettingsForBookReader;
   calmContext.endGlobalEdit = endGlobalSettingsEditForBookReader;
@@ -2752,9 +2756,21 @@ void EpubReaderActivity::openReaderMenu() {
   });
 }
 
+void EpubReaderActivity::drawIndexingPopup() {
+#if CROSSINK_CALM_UI
+  // While the book is still opening, keep the opening card up instead.
+  if (calm::isOpening()) {
+    calm::drawOpeningCard(renderer, tr(STR_CALM_PREPARING), epub ? epub->getTitle() : std::string(),
+                          epub ? epub->getAuthor() : std::string());
+    return;
+  }
+#endif
+  GUI.drawPopup(renderer, tr(STR_INDEXING));
+}
+
 void EpubReaderActivity::showBuildPopup() {
   if (!buildPopupPending || !renderer.hasFrameBuffer()) return;
-  GUI.drawPopup(renderer, tr(STR_INDEXING));
+  drawIndexingPopup();
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   pagesUntilFullRefresh = 1;
   buildPopupPending = false;
@@ -2845,6 +2861,8 @@ void EpubReaderActivity::loop() {
 #if CROSSINK_CALM_UI
   // The section exists once render() has started the relayout; openReaderMenu()
   // takes the render lock, so the sheet opens after that page is displayed.
+  // The first page is up once a finished section exists: the opening card is done.
+  if (calm::isOpening() && section && !section->isBuilding()) calm::endOpening();
   if (calmSheetReopenRow >= 0 && section) {
     openReaderMenu();
     return;
@@ -3867,8 +3885,13 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       const int spineIdx = currentSpineIndex;
       const std::string path = epub->getPath();
       pauseReadingPaceTimer("chapter_selection");
+      (void)path;
       startActivityForResult(
+#if CROSSINK_CALM_UI
+          std::make_unique<CalmContentsActivity>(renderer, mappedInput, epub, spineIdx),
+#else
           std::make_unique<EpubReaderChapterSelectionActivity>(renderer, mappedInput, epub, path, spineIdx),
+#endif
           [this, returnToReaderMenu](const ActivityResult& result) {
             if (!result.isCancelled) {
               const auto& chapterResult = std::get<ChapterResult>(result.data);
@@ -3906,7 +3929,12 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
         bookProgress = getCurrentBookProgressPercent();
       }
       pauseReadingPaceTimer("percent_selection");
-      startActivityForResult(std::make_unique<EpubReaderPercentSelectionActivity>(renderer, mappedInput, bookProgress),
+#if CROSSINK_CALM_UI
+      using PercentSelector = CalmGoToActivity;
+#else
+      using PercentSelector = EpubReaderPercentSelectionActivity;
+#endif
+      startActivityForResult(std::make_unique<PercentSelector>(renderer, mappedInput, bookProgress),
                              [this, returnToReaderMenu](const ActivityResult& result) {
                                if (!result.isCancelled) {
                                  jumpToPercent(std::get<PercentResult>(result.data).percent);
@@ -3930,7 +3958,11 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
           epub->resolveReferencePage(currentSpineIndex, progress, page, count);
         }
       }
+#if CROSSINK_CALM_UI
+      auto selector = makeUniqueNoThrow<CalmGoToActivity>(renderer, mappedInput, page, count);
+#else
       auto selector = makeUniqueNoThrow<EpubReaderPercentSelectionActivity>(renderer, mappedInput, page, count);
+#endif
       if (!selector) {
         LOG_ERR("ERS", "Could not allocate stable page selector");
         requestUpdate();
@@ -6078,7 +6110,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   };
 
   const auto showIndexingPopup = [this]() {
-    GUI.drawPopup(renderer, tr(STR_INDEXING));
+    drawIndexingPopup();
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     pagesUntilFullRefresh = 1;
   };
@@ -6222,7 +6254,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       }
 
       const auto popupFn = [this]() {
-        if (renderer.hasFrameBuffer()) GUI.drawPopup(renderer, tr(STR_INDEXING));
+        if (renderer.hasFrameBuffer()) drawIndexingPopup();
       };
 
       bool layoutAbortedForLowMemory = false;

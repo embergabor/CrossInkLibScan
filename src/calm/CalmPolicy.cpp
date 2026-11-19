@@ -33,9 +33,12 @@ void applySettingsPolicy(CrossPointSettings& settings) {
   // untouched default starts at the sheet's 1.20 step instead.
   if (settings.lineHeightPercent == 100) settings.lineHeightPercent = 120;
 
-  // Justified text without hyphenation opens wide gaps between words on a
-  // 480 px page. Calm builds always hyphenate (English patterns only).
-  settings.hyphenationEnabled = 1;
+  // No hyphenation, as in Calm UI for KOReader. The sheet has no toggle.
+  settings.hyphenationEnabled = 0;
+
+  // Upstream screens draw with the calm theme (UITheme); it is built on
+  // RoundedRaff, and code that checks the stored theme should agree.
+  settings.uiTheme = CrossPointSettings::UI_THEME::ROUNDEDRAFF;
 
   // The calm Library shows titles and authors from EPUB metadata.
   settings.libraryUseMetadata = 1;
